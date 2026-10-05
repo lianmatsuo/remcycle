@@ -88,7 +88,7 @@ Each is dated 2026-10-05 unless noted.
 
 **Named remcycle.** Rejected: claude-dream-mod. Claude Code's legal page says its names cannot be used as part of another product's name, and "mod" named one of four parts.
 
-**Apache-2.0.**
+**Apache-2.0.** Copyright Lian Matsuo, stated in `NOTICE`. The licence text itself carries no holder line.
 
 **Mod first.** Rejected: a stable layer of skills and settings hooks with the mod as an add-on. The consequence is that a release works only with the Claude Code builds whose mod API it was written against, and has to say which.
 
