@@ -40,3 +40,16 @@ def test_a_settings_file_that_cannot_be_used_is_an_error_naming_the_file(tmp_pat
 
     with pytest.raises(ValueError, match="config.toml"):
         load_settings({}, tmp_path)
+
+
+def test_the_dream_keeps_its_memory_copies_and_reports_beside_the_archive_and_asks_sonnet_by_default(tmp_path):
+    file = tmp_path / ".config" / "remcycle" / "config.toml"
+    file.parent.mkdir(parents=True)
+
+    default = load_settings({}, tmp_path)
+    file.write_text('model = "haiku"\n')
+    chosen = load_settings({}, tmp_path)
+
+    assert default.memory == tmp_path / ".local" / "share" / "remcycle" / "memory"
+    assert default.reports == tmp_path / ".local" / "share" / "remcycle" / "reports"
+    assert (default.model, chosen.model) == ("sonnet", "haiku")

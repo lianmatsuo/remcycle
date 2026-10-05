@@ -1,5 +1,6 @@
 """The archive: verbatim session turns in SQLite, found by ranked full-text search."""
 
+import json
 import re
 import sqlite3
 from collections.abc import Iterable
@@ -39,6 +40,15 @@ CREATE TABLE IF NOT EXISTS turns (
     uuid       TEXT,
     timestamp  TEXT,
     UNIQUE (session_id, seq)
+);
+CREATE TABLE IF NOT EXISTS dreams (
+    session_id TEXT PRIMARY KEY REFERENCES sessions(session_id),
+    turn_count INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS digests (
+    session_id TEXT PRIMARY KEY REFERENCES sessions(session_id),
+    turn_count INTEGER NOT NULL,
+    body       TEXT NOT NULL
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS turns_fts USING fts5(
     text, content='turns', content_rowid='id', tokenize='porter unicode61'
@@ -90,6 +100,16 @@ class Hit:
     project: str | None
     matched_all: bool
     """False when no turn held every word and this one holds only some of them."""
+
+
+@dataclass(frozen=True)
+class Undreamt:
+    """A session the dream has not read, or has not read all of."""
+
+    session_id: str
+    project: str
+    title: str | None
+    ended_at: str | None
 
 
 @dataclass
@@ -148,6 +168,42 @@ class Archive:
             else:
                 report.added += 1
         return report
+
+    def awaiting_dream(self) -> list[Undreamt]:
+        """Sessions with turns the dream has not read, oldest first."""
+        rows = self._db.execute(
+            """
+            SELECT s.session_id, s.project, s.title, s.ended_at
+            FROM sessions s LEFT JOIN dreams d ON d.session_id = s.session_id
+            WHERE d.turn_count IS NULL
+               OR d.turn_count != (SELECT count(*) FROM turns t WHERE t.session_id = s.session_id)
+            ORDER BY s.ended_at
+            """
+        )
+        return [Undreamt(*row) for row in rows]
+
+    def record_dream(self, session_id: str) -> None:
+        """Note that the dream has read the session as it now stands."""
+        with self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO dreams VALUES (?, ?)", (session_id, self._turn_count(session_id))
+            )
+
+    def keep_digest(self, session_id: str, digest: dict) -> None:
+        """Keep what the model made of the session as it now stands, so it is never asked twice."""
+        with self._db:
+            self._db.execute(
+                "INSERT OR REPLACE INTO digests VALUES (?, ?, ?)",
+                (session_id, self._turn_count(session_id), json.dumps(digest)),
+            )
+
+    def digest(self, session_id: str) -> dict | None:
+        """The session's digest, unless the session has grown since it was made."""
+        row = self._db.execute(
+            "SELECT body FROM digests WHERE session_id = ? AND turn_count = ?",
+            (session_id, self._turn_count(session_id)),
+        ).fetchone()
+        return json.loads(row[0]) if row else None
 
     def _turn_count(self, session_id: str) -> int:
         (count,) = self._db.execute("SELECT count(*) FROM turns WHERE session_id = ?", (session_id,)).fetchone()

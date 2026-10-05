@@ -355,3 +355,17 @@ def test_reading_back_a_session_that_cannot_be_pinned_down_is_an_error(root, arc
         archive.show("deadbeef")
     with pytest.raises(LookupError, match="2 archived sessions"):
         archive.show("7f3a9c2e")
+
+
+def test_a_session_waits_for_its_dream_until_one_is_recorded_and_again_once_it_grows(root, archive):
+    rows = [human("pin the base image version", 0)]
+    put_session(root, "s-1", rows, cwd="/work/shop")
+    archive.ingest(root)
+    assert [(s.session_id, s.project) for s in archive.awaiting_dream()] == [("s-1", "/work/shop")]
+
+    archive.record_dream("s-1")
+    assert archive.awaiting_dream() == []
+
+    put_session(root, "s-1", [*rows, assistant_text("Pinned python:3.13.9-slim.", 1)], cwd="/work/shop")
+    archive.ingest(root)
+    assert [s.session_id for s in archive.awaiting_dream()] == ["s-1"]
