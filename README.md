@@ -2,7 +2,7 @@
 
 Nightly memory for Claude Code, built from its own sessions: an archive of what was said, a dream that reconciles it into memory while you are away, and a mod that loads and recalls it. The why and the design are in [docs/intent.md](docs/intent.md).
 
-Only the archive exists so far. It runs on macOS and Linux; Windows is untested.
+The archive, the dream and the mod are built. Scheduling, publishing to live memory and installing the mod are switches you turn on yourself. It runs on macOS and Linux; Windows is untested.
 
 remcycle is an independent project and is not affiliated with or endorsed by Anthropic.
 
@@ -35,6 +35,57 @@ uv run dream show 7f3a9c2e --first 9 --last 12
 
 Prints those turns as archived. The session can be given by the start of its id.
 
+## Dream
+
+```bash
+uv run dream run
+```
+
+Brings the archive up to date, then reads every session it has not read and reconciles what each established into memory. It prints a report and saves it under `~/.local/share/remcycle/reports/`.
+
+The model is used for one step only: reading a session and proposing claims, each with a passage quoted from the turns it cites. Everything after that is code:
+
+- A claim whose quote is not in the turns it cites is thrown out.
+- A claim carries your authority only if you typed the quoted passage.
+- A new entry needs your words or your agreement behind it, unless it is a lesson. A lesson nobody endorsed is kept on file but left out of the index every session loads.
+- The same statement heard again adds evidence. A different one replaces the entry if it has at least the same authority and is newer. A weaker one is put to you instead.
+
+The dream works on its own copy of each project's memory under `~/.local/share/remcycle/memory/`, staged and checked before it is accepted. The memory Claude Code loads is not touched unless you pass `--publish`, and publishing is refused if that memory changed while the dream ran.
+
+```bash
+uv run dream queue
+```
+
+Lists disagreements waiting for you. Settle one with `dream resolve SLOT --accept` to take the new claim or `--keep` to keep the entry.
+
+The model step runs through your own Claude Code, headless (`claude -p`), with no tools, no settings and no transcript. It uses your plan's usage: on the development machine one long session cost about $0.58 at API prices with Sonnet. Choose the model with `model = "haiku"` in the settings file or `--model`.
+
+## Mod
+
+`mod/` is a Claude Code mod (function hooks, early access). Once loaded it:
+
+- gives each new conversation what you have said applies to all your work, and what earlier sessions in the project left open;
+- gives Claude a `recall` tool that searches the archive and reads turns back;
+- brings the archive up to date when a session ends;
+- warns Claude when it reads a memory about a file that no longer exists;
+- adds `/remcycle`, a pane showing what the dream holds for the project and what waits for your ruling, with buttons to rule.
+
+It calls the `dream` command, so that has to be on your `PATH`:
+
+```bash
+uv tool install --editable .
+```
+
+```bash
+claude --plugin-dir mod
+```
+
+It was written against Claude Code 2.1.286. The mod API is early access and can change between releases.
+
+## Running it every night
+
+[docs/schedule.md](docs/schedule.md) has a ready-made task for Claude Code Desktop's scheduler and a cron line.
+
 ## What the archive holds, and what protects it
 
 The archive stores what you typed into every session, word for word. Three things limit the exposure:
@@ -43,7 +94,7 @@ The archive stores what you typed into every session, word for word. Three thing
 - **Excluded projects.** Sessions from a listed project, or from anything inside it, are never archived. Excluding a project does not remove sessions that were archived before it was listed.
 - **File permissions.** The archive file is readable only by your user.
 
-Nothing is sent anywhere. The archive is one local SQLite file.
+The archive is one local SQLite file and ingest sends nothing anywhere. The dream is different: it sends the prose of each unread session, after redaction, to the model through your own Claude Code, as any session would.
 
 ## Settings
 
@@ -65,7 +116,13 @@ The archive reads Claude Code's session transcripts, an internal format that can
 uv run pytest
 ```
 
-Tests sit at three seams: transcript parsing (`tests/test_transcript.py`), the archive's `ingest`, `search` and `show` against a real SQLite file (`tests/test_archive.py`), and settings (`tests/test_settings.py`). The CLI has one end-to-end test.
+The Python tests sit at these seams: transcript parsing, the archive against a real SQLite file, settings, reconciliation as pure functions, the memory store against folders in Claude Code's format, extraction through a stand-in for the model, the gate, and whole dream runs against temporary folders. The CLI has one end-to-end test.
+
+```bash
+CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test mod
+```
+
+The mod's tests run in Claude Code's own plugin test kit.
 
 ## Licence
 

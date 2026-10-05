@@ -21,9 +21,9 @@ Tiers are split by what gets loaded and when, because rot comes from what enters
 
 | Tier | Holds | Loaded | Lifetime |
 |---|---|---|---|
-| Working | Open threads and in-flight state, per project | Always, capped by entry count | Expires unless re-confirmed |
-| Long-term | One claim per entry, scoped global or per project | A topic index of 10–30 lines; bodies on recall | Until superseded or retired |
-| Archive | Verbatim turns per session, plus a digest that indexes them | Never; recall only | Permanent; the evidence long-term entries cite |
+| Working | Threads a session left open, per project | By the mod, at the start of each conversation | Two weeks, unless a session touches the thread again |
+| Long-term | One claim per entry, scoped global or per project | One index line per entry, kept within what Claude Code loads; bodies on recall | Until superseded |
+| Archive | Verbatim turns per session, plus what the model made of each | Never; recall only | Permanent; the evidence long-term entries cite |
 
 `CLAUDE.md` and skills stay hand-owned. Must-follow rules live there, or become mod hooks when they are mechanically checkable; the dream proposes them and does not hold them.
 
@@ -44,27 +44,31 @@ Admission test: an entry gets in only if the repo cannot tell you it and it orig
 
 ## The dream
 
-Runs as a local scheduled task, with consolidation on idle and nightly as the backstop. A missed run gets one catch-up on wake, so every run works from "since the last successful run" and is safe to repeat.
+`dream run` is one command, safe to run at any time and to interrupt. Each run works from the sessions it has not yet read.
 
-1. Ingest new and changed transcripts into the archive.
-2. Extract candidate claims as typed fields. This is the only step the model performs.
-3. Reconcile in code: `same` adds evidence, `refines` appends a revision, `supersedes` marks the old entry with a pointer, and an unresolved contradiction makes the claim `contested`. Contested and superseded entries are never loaded.
-4. Prune: expire working items, check repo-fact anchors, drop what the repo now records, demote on failed verification or a harmful signal, enforce the index budget by eviction and never by re-summarising.
-5. Gate: all of this happens on a git branch of the memory folder as operations on entry ids. It merges only if the checks pass (entries lost, schema, index budget, pointer recall on a fixed probe set).
-6. Report what changed and the conflict queue.
+1. **Ingest** new and changed transcripts into the archive.
+2. **Extract.** For each unread session the model proposes claims and open threads, each claim with a passage quoted from the turns it cites. This is the only model step, and what the model made of a session is kept, so no session is paid for twice.
+3. **Check.** Code throws out any claim whose quote is not in the turns it cites, and lowers a claim's provenance to what those turns bear out: it carries the person's authority only if the person typed the quoted passage.
+4. **Reconcile** in code, per slot. The same statement adds evidence. A different one supersedes the entry if it has at least the same authority and is newer. A weaker one is put to the person; for a fact it also withholds the entry, since the world may have changed. A new entry needs the person's words or agreement behind it, unless it is a lesson.
+5. **Stage and gate.** The changes are made in a throwaway copy of remcycle's own copy of the project's memory. The gate refuses the copy if an entry vanished without a record, if a memory file changed outside any recorded operation, or if the index would be cut off by Claude Code or points at a missing file. A refused copy changes nothing and its sessions stay unread.
+6. **Report** what changed and what waits for a ruling.
+7. **Publish**, only when asked: write the accepted memory to the folder Claude Code loads, unless that folder changed while the dream ran.
+
+The index is kept within what Claude Code loads by dropping lines, never by rewriting them: memories from before remcycle that no session has read go first, oldest first. A lesson the person neither stated nor agreed to never gets a line. Dropped entries stay on file, where recall and search find them.
 
 ## Plugging into Claude Code
 
 | Part | Mechanism |
 |---|---|
-| Long-term store | The built-in memory folders, under git |
-| Capture during the day | Sessions keep writing memories as they do now; those are the inbox |
-| Dream | Desktop local scheduled task (`~/.claude/scheduled-tasks/<name>/SKILL.md`) calling this repo's CLI |
-| Global scope and working memory at session start | Mod: `prompt.section` / `prompt.context`, giving the same answer for the whole session so the prompt cache holds |
-| Recall | Mod-registered tool backed by the archive's search |
-| Verify at use, usage logging | Mod `tool.call` hooks on memory reads |
-| View and conflict queue | Mod pane |
-| Later: MCP sources as extra evidence | Mod `mcp.call`; every entry already carries a source |
+| Long-term store | remcycle's own copy of each project's memory folder, a git repository under its data folder. Claude Code's folder is written only on publish |
+| Capture during the day | Sessions keep writing memories as they do now. The dream takes them in at the start of each run, and a session's version always wins |
+| Dream | `dream run`, on any scheduler |
+| What a conversation is given at its start | Mod, `prompt.context`: what applies everywhere and what the project left open, asked once per conversation so the prompt cache holds |
+| Recall | Mod-registered tool backed by `dream search` and `dream show` |
+| Verify at use, usage counts | Mod `tool.call` hook on reads of memory files |
+| View and rulings | Mod pane, `/remcycle` |
+| Ingest at session end | Mod `session.end` hook |
+| Later: MCP sources as extra evidence | Mod `mcp.call`. Not built |
 
 ## Decisions
 
@@ -100,6 +104,12 @@ Each is dated 2026-10-05 unless noted.
 
 **macOS and Linux first.** Windows is untested.
 
+**The dream works on its own copy of memory.** Rejected: making the folder Claude Code loads a git repository and working on a branch of it. A copy needs no answer to whether Claude Code tolerates a repository there, cannot leave live memory half-changed, and lets the dream commit as itself without waiting on the person's signing key.
+
+**Every claim must quote the session.** Rejected: trusting the model's own account of who said what. Code checks the quote against the cited turns and sets provenance from who wrote them. On the first real session this threw out one claim of four and kept two of the assistant's own conclusions from being stored as decisions.
+
+**A lesson nobody endorsed stays out of the index.** It is the model's conclusion, the kind of context that costs more than it helps when always loaded. It stays on file for recall.
+
 **One archive database, scoped at query time.** Rejected for now: a database per project. Search defaults to the current project and crossing projects takes an explicit flag. The file lives at `~/.local/share/remcycle/archive.db`, outside `~/.claude`, which Claude Code manages and sweeps.
 
 **Search covers prose by default.** Tool calls are three quarters of archived turns and outranked the prose that explained them, so they are searched only on request. So are subagent reports.
@@ -114,11 +124,19 @@ Each is dated 2026-10-05 unless noted.
 
 ## Build order
 
-1. **Archive and search.** Built 2026-10-05: `dream ingest`, `dream search`, `dream show`, with redaction, excluded projects and settings. The digest that indexes each session is not built yet; it arrives with the dream.
-2. Dream on a branch, for one project first.
-3. Mod: session-start loading, recall tool, verify at use, usage logging.
-4. Pane and conflict queue.
-5. MCP sources.
+1. **Archive and search.** Built: `dream ingest`, `dream search`, `dream show`, with redaction, excluded projects and settings.
+2. **The dream.** Built: `dream run`, `dream queue`, `dream resolve`, with the per-session digest kept in the archive.
+3. **Mod.** Built: start-of-conversation context, the recall tool, ingest at session end, the warning on stale memories, read counts.
+4. **Pane and rulings.** Built: `/remcycle`.
+5. **MCP sources.** Not built.
+
+Not built, though the design calls for it:
+
+- The gate's fourth check: whether a model given only the index still picks the right entry. It needs probe questions written from real sessions.
+- A two-level topic index. The index is one line per entry, kept within budget by dropping lines.
+- Pruning beyond the index: checking repo facts against the repository during the dream, and demoting entries after a harmful signal. Read counts are recorded; nothing acts on them yet beyond the index budget.
+- A pass over memories from before remcycle. They are taken in as they are and change only when a new claim lands on their slot.
+- Measuring extraction against sessions labelled by hand.
 
 ## Open
 
@@ -127,8 +145,8 @@ Each is dated 2026-10-05 unless noted.
 - Redaction is pattern matching and misses secrets with no recognisable shape.
 - A change to the extraction rules re-derives archived sessions, but only those whose transcripts still exist.
 - A session's project is its git repository, and a worktree is traced to its repository only while the worktree still exists. Sessions from worktrees deleted before their first ingest keep the worktree path as their project.
-- How the dream's git branch coexists with Claude Code writing to the same memory folder during the day (in place, or relocated via `autoMemoryDirectory`).
-- The fixed probe set for the pointer-recall gate has to be written by hand from real sessions.
+- Orchestrated sessions: a prompt sent by another agent or a script is not the person's word, so a decision that reached the session that way is treated as the assistant's own and is not stored. This is strict by design and loses some real decisions.
+- A session edit to a memory the dream wrote makes it a memory without provenance again.
 
 ## Sources
 
