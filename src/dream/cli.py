@@ -143,7 +143,7 @@ def _queue(archive: Archive, args: argparse.Namespace) -> int:
 
 
 def _context(archive: Archive, args: argparse.Namespace) -> int:
-    print(json.dumps(context(args.memory, _project(args), _now())))
+    print(json.dumps(context(args.memory, _project(args), _now(), live_root=args.root)))
     return 0
 
 
@@ -266,6 +266,7 @@ def _parser(settings: Settings) -> argparse.ArgumentParser:
         sub = command(name, run_, help_)
         sub.add_argument("--project", type=Path, help="project folder (default: this repository)")
         sub.add_argument("--memory", type=Path, default=settings.memory, help=argparse.SUPPRESS)
+        sub.add_argument("--root", type=Path, default=settings.transcripts, help=argparse.SUPPRESS)
 
     resolve = command("resolve", _resolve, "rule on a disagreement listed by `dream queue`")
     resolve.add_argument("slot")

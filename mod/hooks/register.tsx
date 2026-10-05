@@ -325,7 +325,15 @@ export const register: Register = on => {
       return next(e)
     }
 
-    const given: { everywhere: string[]; threads?: { slot: string; statement: string }[] } = JSON.parse(out)
+    type Named = { slot: string; statement: string }
+    const given: {
+      everywhere: string[]
+      learned?: Named[]
+      learned_in?: string
+      learned_more?: number
+      threads?: Named[]
+    } = JSON.parse(out)
+    const learned = given.learned ?? []
     const threads = given.threads ?? []
     const blocks = [...e.blocks]
 
@@ -335,6 +343,22 @@ export const register: Register = on => {
         text:
           'What this person has said applies to all their work:\n' +
           given.everywhere.map(line => `- ${line}`).join('\n'),
+      })
+    }
+
+    if (learned.length > 0) {
+      const more = given.learned_more ?? 0
+
+      blocks.push({
+        name: 'remcycleLearned',
+        text:
+          'What earlier sessions established about this project, each said or agreed to by the person, under its ' +
+          'name:\n' +
+          learned.map(memory => `- ${memory.slot}: ${memory.statement}`).join('\n') +
+          (more > 0
+            ? `\n${more} older ${more === 1 ? 'one is' : 'ones are'} not listed here. The recall tool finds them.`
+            : '') +
+          `\nEach is a file named after it in ${given.learned_in ?? ''}, holding the reason and the session it came from.`,
       })
     }
 

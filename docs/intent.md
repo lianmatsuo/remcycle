@@ -90,6 +90,8 @@ Each is dated 2026-10-05 unless noted.
 
 **Apache-2.0.** Copyright Lian Matsuo, stated in `NOTICE`. The licence text itself carries no holder line.
 
+**Hand sessions what was learned; publish only to clean up.** Rejected as the default: writing the dream's memory into the folders Claude Code loads. The mod gives each new session the project's learned memories, so nothing of Claude Code's is touched and turning the mod off undoes it. A handed-over list can only add. Removing a stale memory from what Claude Code loads, or shortening its index, still takes publishing, which stays off.
+
 **Mod first.** Rejected: a stable layer of skills and settings hooks with the mod as an add-on. The consequence is that a release works only with the Claude Code builds whose mod API it was written against, and has to say which.
 
 **The dream's model call runs in the user's own Claude Code, headless.** Rejected: calling the API with a key, or with the user's subscription. Claude Code's terms do not let a third-party tool route requests through someone's subscription, but anyone may run their own Claude Code, so remcycle never handles credentials.

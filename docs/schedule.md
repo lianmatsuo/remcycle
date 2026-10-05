@@ -34,7 +34,7 @@ cron runs with a minimal `PATH`. Give the full paths to `dream` and make sure `c
 
 ## Publishing
 
-By default the dream stops at its own copy of memory. Add `--publish` once you trust what it accepts:
+By default the dream stops at its own copy of memory, and the mod hands each new session what the dream learned. Add `--publish` only when you want the dream to change the memory Claude Code itself holds:
 
 ```
 dream run --publish

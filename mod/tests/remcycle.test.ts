@@ -98,6 +98,9 @@ test('a new conversation is given what applies everywhere and what the project l
   commandLine(on, {
     context: JSON.stringify({
       everywhere: ['Use pnpm for JS projects.'],
+      learned: [{ slot: 'ci-runner', statement: 'CI is self-hosted.' }],
+      learned_in: '/home/me/.local/share/remcycle/memory/-work-shop',
+      learned_more: 2,
       threads: [{ slot: 'ci-cache', statement: 'CI cache for pnpm is not set up.' }],
     }),
   })
@@ -110,6 +113,15 @@ test('a new conversation is given what applies everywhere and what the project l
     {
       name: 'remcycleEverywhere',
       text: 'What this person has said applies to all their work:\n- Use pnpm for JS projects.',
+    },
+    {
+      name: 'remcycleLearned',
+      text:
+        'What earlier sessions established about this project, each said or agreed to by the person, under its name:\n' +
+        '- ci-runner: CI is self-hosted.\n' +
+        '2 older ones are not listed here. The recall tool finds them.\n' +
+        'Each is a file named after it in /home/me/.local/share/remcycle/memory/-work-shop, holding the reason and ' +
+        'the session it came from.',
     },
     {
       name: 'remcycleOpenThreads',

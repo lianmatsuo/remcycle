@@ -397,6 +397,10 @@ class MemoryStore:
     def _threads(self) -> dict[str, dict]:
         return json.loads(self._threads_file.read_text()) if self._threads_file.exists() else {}
 
+    def indexed(self) -> list[str]:
+        """The entries the index holds a line for, in the index's order."""
+        return [slot for line in self._lines() if (slot := _slot_of(line))]
+
     def by_topic(self) -> bool:
         """Whether the index lists topics rather than one line per entry."""
         return any(self._folder.glob(f"{TOPIC_PAGE}*.md"))

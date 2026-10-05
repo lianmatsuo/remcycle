@@ -59,6 +59,8 @@ The dream works on its own copy of each project's memory under `~/.local/share/r
 
 Up to 60 entries the index is one line per entry. Past that it lists topics, and each topic has a page of its entries' lines. A topic's line names every memory on its page while the index has room. Lines are moved between the two, never rewritten. A review keeps the index one line per entry if, listed by topic, it leads the model to the right memory for fewer of the entries' probe questions. The memory Claude Code loads is not touched unless you pass `--publish`, and publishing is refused if that memory changed while the dream ran.
 
+With the mod loaded you do not need to publish for sessions to get what the dream learned: the mod hands each new session those memories, newest first, up to about 4,000 characters. Publishing is for changing what Claude Code itself holds, which a handed-over list cannot do: taking a retired memory out of what it loads, or shortening an index that is nearly full.
+
 ```bash
 uv run dream queue
 ```
@@ -79,7 +81,7 @@ The model step runs through your own Claude Code, headless (`claude -p`), with n
 
 `mod/` is a Claude Code mod (function hooks, early access). Once loaded it:
 
-- gives each new conversation what you have said applies to all your work, and what earlier sessions in the project left open;
+- gives each new conversation what you have said applies to all your work, what the dream has learned about the project that Claude Code's own memory does not hold, and what earlier sessions in the project left open;
 - gives Claude a `recall` tool that searches memory and the archive, takes several phrasings at once, and reads turns back;
 - gives Claude a `close_thread` tool, and the names of the open threads, so a conversation closes a thread when it finishes one. It has to say what finished it, and the next dream checks the claim against that conversation's own transcript and reopens the thread if the work was not done;
 - brings the archive up to date when a session ends;

@@ -233,18 +233,54 @@ def test_a_new_session_is_given_what_applies_everywhere_and_what_this_project_le
 
     dreamt(archive, claude, tmp_path, Model2(), now="2026-10-02T12:00:00+00:00")
 
-    given = context(tmp_path / "memory", PROJECT, now="2026-10-03T09:00:00+00:00")
-    assert given == {
-        "everywhere": ["Use pnpm for JS projects."],
-        "threads": [{"slot": "ci-cache", "statement": "CI cache for pnpm is not set up."}],
-    }
-    assert context(tmp_path / "memory", "/work/other", now="2026-10-03T09:00:00+00:00") == {
-        "everywhere": ["Use pnpm for JS projects."],
-        "threads": [],
-    }
+    given = context(tmp_path / "memory", PROJECT, now="2026-10-03T09:00:00+00:00", live_root=claude)
+    assert (given["everywhere"], given["threads"]) == (
+        ["Use pnpm for JS projects."],
+        [{"slot": "ci-cache", "statement": "CI cache for pnpm is not set up."}],
+    )
+    elsewhere = context(tmp_path / "memory", "/work/other", now="2026-10-03T09:00:00+00:00", live_root=claude)
+    assert (elsewhere["everywhere"], elsewhere["threads"], elsewhere["learned"]) == (["Use pnpm for JS projects."], [], [])
     assert status(tmp_path / "memory", PROJECT, now="2026-10-03T09:00:00+00:00")["open_threads"] == [
         {"slot": "ci-cache", "statement": "CI cache for pnpm is not set up.", "seen_at": "2026-10-01T09:00:02.000Z"}
     ]
+
+
+def test_a_new_session_is_handed_what_the_dream_learned_that_claude_codes_own_memory_lacks(archive, claude, tmp_path):
+    pnpm_session(claude)
+    put_session(claude, "s-ci", [human("our CI is self-hosted, remember that", 0)], cwd=PROJECT)
+    ci = {**PNPM, "slot": "ci-runner", "statement": "CI is self-hosted.", "first_turn": 0, "last_turn": 0,
+          "quote": "our CI is self-hosted, remember that"}
+    hunch = {**PNPM, "slot": "cache-hunch", "type": "lesson", "provenance": "inferred", "statement": "The cache may be cold on Mondays.",
+             "first_turn": 1, "last_turn": 1, "quote": "I'll use npm."}
+
+    class Learns(Model):
+        def __call__(self, prompt):
+            reply = super().__call__(prompt)
+            session = prompt.split("## Session")[1]
+            claims = [PNPM, hunch] if "always use pnpm" in session else [ci]
+            return Reply({**reply.data, "claims": claims}, reply.cost_usd)
+
+    dreamt(archive, claude, tmp_path, Learns())
+    copy = tmp_path / "memory" / "-work-shop"
+
+    given = context(tmp_path / "memory", PROJECT, now="2026-10-03T09:00:00+00:00", live_root=claude)
+
+    # Newest first: the person spoke of pnpm two seconds after the other session spoke of CI.
+    assert given["learned"] == [
+        {"slot": "package-manager", "statement": "Use pnpm for JS projects."},
+        {"slot": "ci-runner", "statement": "CI is self-hosted."},
+    ]
+    assert (given["learned_in"], given["learned_more"]) == (str(copy), 0)
+
+    tight = context(tmp_path / "memory", PROJECT, now="2026-10-03T09:00:00+00:00", live_root=claude, room=30)
+    assert (tight["learned"], tight["learned_more"]) == (
+        [{"slot": "package-manager", "statement": "Use pnpm for JS projects."}],
+        1,
+    )
+
+    (claude / "-work-shop" / "memory" / "package-manager.md").write_text((copy / "package-manager.md").read_text())
+    after = context(tmp_path / "memory", PROJECT, now="2026-10-03T09:00:00+00:00", live_root=claude)
+    assert after["learned"] == [{"slot": "ci-runner", "statement": "CI is self-hosted."}]
 
 
 def test_status_lists_what_the_dream_holds_for_a_project_and_what_waits_on_the_person(archive, claude, tmp_path):
