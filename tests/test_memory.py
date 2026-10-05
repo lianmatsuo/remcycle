@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from dream.claims import Claim, ClaimType, Evidence, Provenance, Scope, Status
@@ -508,3 +510,19 @@ def test_an_index_kept_one_line_per_entry_stays_that_way_until_topics_are_allowe
     crowded.fit_index(200, 25_000)
 
     assert crowded.by_topic()
+
+
+def test_a_write_that_fails_part_way_leaves_the_file_as_it_was(folder, monkeypatch):
+    store = MemoryStore(folder)
+    store.note_threads([Thread("ci-cache", "CI cache is not set up.", True, 4)], "session-a", "2026-10-01T09:00:00Z")
+    threads = folder / ".remcycle" / "threads.json"
+    before = threads.read_text()
+
+    def fails(source, target):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "replace", fails)
+    with pytest.raises(OSError, match="disk full"):
+        store.note_threads([Thread("lint-rules", "Lint rules are not agreed.", True, 1)], "session-b", "2026-10-02T09:00:00Z")
+
+    assert threads.read_text() == before

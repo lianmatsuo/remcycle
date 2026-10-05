@@ -4,8 +4,16 @@ import argparse
 import json
 import os
 import sys
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, date, datetime
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # Windows has no fcntl, and there commands do not take turns.
+    fcntl = None
 
 from dream.archive import NO_PROJECT, Archive, project_of
 from dream import outside, review
@@ -27,10 +35,41 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser(settings).parse_args(argv)
     with Archive(args.db) as archive:
         try:
+            if args.run in _CHANGES_MEMORY:
+                with _turn(args.memory):
+                    return args.run(archive, args)
             return args.run(archive, args)
-        except LookupError as e:
+        except (LookupError, _Busy) as e:
             print(f"dream: {e}", file=sys.stderr)
             return 1
+
+
+_TURN_WAIT = 5.0
+"""Seconds a command that changes memory waits for another to finish before it gives up."""
+
+
+class _Busy(Exception):
+    """Another command is changing memory and did not finish in time."""
+
+
+@contextmanager
+def _turn(memory: Path) -> Iterator[None]:
+    """Hold the one turn at changing memory, so that two commands never rewrite the same files at once."""
+    if fcntl is None:
+        yield
+        return
+    memory.mkdir(parents=True, exist_ok=True)
+    with (memory / ".lock").open("w") as lock:
+        deadline = time.monotonic() + _TURN_WAIT
+        while True:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError as e:
+                if time.monotonic() >= deadline:
+                    raise _Busy("another dream command is changing memory; try again when it has finished") from e
+                time.sleep(0.05)
+        yield
 
 
 def _ingest(archive: Archive, args: argparse.Namespace) -> int:
@@ -194,6 +233,9 @@ def _note_read(archive: Archive, args: argparse.Namespace) -> int:
     if file.stem in MemoryStore(copy).entries():
         print(MemoryStore(copy).note_read(file.stem, Path(project_of(str(Path.cwd()))), _now()) or "")
     return 0
+
+
+_CHANGES_MEMORY = (_run, _review, _resolve, _close, _reopen)
 
 
 def _project(args: argparse.Namespace) -> str:

@@ -10,7 +10,7 @@ export type Waiting = {
   slot: string
   holds: string | null
   suggests: string | null
-  reason: string
+  reasons: string[]
   from: string | null
   withheld: boolean
   evidence: string | null
@@ -32,6 +32,14 @@ export type View = 'home' | 'memories' | 'threads'
 
 declare module 'claude-code' {
   interface PluginState {
-    remcycle: { status: Status | null; project: string | null; view: View; at: number; page: number }
+    remcycle: {
+      status: Status | null
+      project: string | null
+      view: View
+      at: number
+      page: number
+      busy: string | null
+      last: string | null
+    }
   }
 }

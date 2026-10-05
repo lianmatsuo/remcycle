@@ -11,7 +11,7 @@ from dream.extract import ExtractionError, Reply
 from dream.claims import Status
 from dream.memory import MemoryStore
 from dream.outside import Finished, Witnessed
-from dream.reconcile import Withhold
+from dream.reconcile import Review, Withhold
 from support import assistant_text, human, put_session
 
 PROJECT = "/work/shop"
@@ -313,9 +313,16 @@ def test_status_lists_what_the_dream_holds_for_a_project_and_what_waits_on_the_p
     ]
     assert state["waiting"] == [
         {"slot": "deploy-target", "holds": "Deploys go to the staging cluster first.",
-         "suggests": "Deploys go straight to production.", "reason": "", "from": "inferred",
+         "suggests": "Deploys go straight to production.", "reasons": [], "from": "inferred",
          "withheld": False, "evidence": "dream show s-pnpm --first 1 --last 1"}
     ]
+
+    copy = MemoryStore(tmp_path / "memory" / "-work-shop")
+    copy.apply([Review("deploy-target", "it looks dated: the cutover is over"), Review("deploy-target", "it repeats `x`: same rule")])
+    (question,) = status(tmp_path / "memory", PROJECT, now="2026-10-03T09:00:00+00:00")["waiting"]
+    # A ruling acts on the newest thing waiting, so that is what the question puts to the person.
+    assert (question["slot"], question["suggests"]) == ("deploy-target", None)
+    assert question["reasons"] == ["it looks dated: the cutover is over", "it repeats `x`: same rule"]
 
 
 def test_a_thread_the_repository_shows_was_finished_outside_any_session_is_closed(archive, claude, tmp_path):

@@ -28,7 +28,7 @@ const STATUS = {
       slot: 'deploy-target',
       holds: 'Deploys go to the staging cluster first.',
       suggests: 'Deploys go straight to production.',
-      reason: '',
+      reasons: [],
       from: 'inferred',
       withheld: false,
       evidence: 'dream show 7f3a9c2e --first 1 --last 1',
@@ -37,7 +37,7 @@ const STATUS = {
       slot: 'cutover-status',
       holds: 'The database cutover is planned for 12 August.',
       suggests: null,
-      reason: 'it looks dated: the cutover date has passed',
+      reasons: ['it looks dated: the cutover date has passed'],
       from: null,
       withheld: true,
       evidence: null,
@@ -262,7 +262,7 @@ test('questions come one at a time with both sides, and a ruling is passed on', 
     const ui = await $.ui.mount({ ...PANE, surface })
     await ui.press({ key: 'refresh' })
 
-    expect(await ui.find({ type: 'Text', text: /^1 of 2$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^2 left$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^Deploy target$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^Deploys go to the staging cluster first\.$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^Deploys go straight to production\.$/ })).toBeDefined()
@@ -273,7 +273,7 @@ test('questions come one at a time with both sides, and a ruling is passed on', 
 
     await ui.press({ key: 'next' })
 
-    expect(await ui.find({ type: 'Text', text: /^2 of 2$/ })).toBeDefined()
+    expect((await ui.find({ key: 'next' }))?.props.label).toBe('Skip')
     expect(await ui.find({ type: 'Text', text: /^Cutover status$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^looks dated$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^The database cutover is planned for 12 August\.$/ })).toBeDefined()
@@ -347,6 +347,151 @@ test('on the first screen a long statement is cut at a word, and shown whole beh
   }
 })
 
+test('while a ruling is being saved the pane says so and offers no second press, then says what was done', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const calls: string[][] = []
+  let release: () => void = () => {}
+  const held = new Promise<void>(resolve => {
+    release = resolve
+  })
+
+  on('process.run', async (_$, e) => {
+    calls.push([...e.argv])
+
+    if (e.argv[1] === 'resolve') {
+      await held
+    }
+
+    const stdout = e.argv[1] === 'status' ? JSON.stringify(STATUS) : 'deploy-target: accepted\n'
+
+    return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'refresh' })
+
+  const pressed = ui.press({ key: 'accept-deploy-target' })
+  await clock.settle()
+
+  expect(await ui.find({ type: 'Text', text: /^Saving: take the suggestion for Deploy target…$/ })).toBeDefined()
+  expect(await ui.find({ key: 'accept-deploy-target' })).toBeUndefined()
+  expect(await ui.find({ key: 'keep-deploy-target' })).toBeUndefined()
+
+  release()
+  await pressed
+
+  expect(await ui.find({ type: 'Text', text: /^Done: took the suggestion for Deploy target$/ })).toBeDefined()
+  expect(await ui.find({ key: 'accept-deploy-target' })).toBeDefined()
+  expect(calls.filter(call => call[1] === 'resolve')).toHaveLength(1)
+  await ui.unmount()
+})
+
+test('Refresh brings the buttons back if a change never finishes saving', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  let release: () => void = () => {}
+  const held = new Promise<void>(resolve => {
+    release = resolve
+  })
+
+  on('process.run', async (_$, e) => {
+    if (e.argv[1] === 'resolve') {
+      await held
+    }
+
+    const stdout = e.argv[1] === 'status' ? JSON.stringify(STATUS) : ''
+
+    return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'refresh' })
+  const stuck = ui.press({ key: 'accept-deploy-target' })
+  await clock.settle()
+  expect(await ui.find({ key: 'accept-deploy-target' })).toBeUndefined()
+
+  await ui.press({ key: 'refresh' })
+
+  expect(await ui.find({ key: 'accept-deploy-target' })).toBeDefined()
+  release()
+  await stuck
+  await ui.unmount()
+})
+
+test('two presses of the same button at once make the change once', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const calls: string[][] = []
+  let release: () => void = () => {}
+  const held = new Promise<void>(resolve => {
+    release = resolve
+  })
+
+  on('process.run', async (_$, e) => {
+    calls.push([...e.argv])
+
+    if (e.argv[1] === 'close') {
+      await held
+    }
+
+    const stdout = e.argv[1] === 'status' ? JSON.stringify(STATUS) : 'ci-cache: closed\n'
+
+    return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'refresh' })
+
+  const first = ui.press({ key: 'close-ci-cache' })
+  await clock.settle()
+  const second = ui.press({ key: 'close-ci-cache' })
+  await clock.settle()
+  release()
+  await Promise.all([first, second])
+
+  expect(calls.filter(call => call[1] === 'close')).toHaveLength(1)
+  expect(await ui.find({ type: 'Text', text: /^Done: closed Ci cache$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a change that could not be saved is reported, not passed over', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  commandLine(on, { status: JSON.stringify(STATUS) })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'refresh' })
+  await ui.press({ key: 'keep-deploy-target' })
+
+  expect(await ui.find({ type: 'Text', text: /^Not saved: keep Deploy target\. Another dream command may be running\.$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('several findings on one memory are one question that lists them all', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  const waiting = [
+    {
+      slot: 'cutover-status',
+      holds: 'The database cutover is planned for 12 August.',
+      suggests: null,
+      reasons: ['it looks dated: the cutover is over', 'it repeats `cutover-done`: both give the date'],
+      from: null,
+      withheld: false,
+      evidence: null,
+    },
+  ]
+  commandLine(on, { status: JSON.stringify({ ...STATUS, waiting }) })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'refresh' })
+
+    expect(await ui.find({ type: 'Text', text: /^1 left$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^2 findings$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^It looks dated: the cutover is over$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^It repeats cutover-done: both give the date$/ })).toBeDefined()
+    expect(await ui.find({ key: 'next' })).toBeUndefined()
+    await ui.unmount()
+  }
+})
+
 test('with nothing waiting the pane says so and offers no question', async ($, on) => {
   mock.clock(on, { now: NOW })
   commandLine(on, { status: JSON.stringify({ ...STATUS, waiting: [] }) })
@@ -386,7 +531,7 @@ test('the newest things the dream learned are listed, and every memory is a butt
 
     await ui.press({ key: 'show-home' })
 
-    expect(await ui.find({ type: 'Text', text: /^1 of 2$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^2 left$/ })).toBeDefined()
     await ui.unmount()
   }
 })

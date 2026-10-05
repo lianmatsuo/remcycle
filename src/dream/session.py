@@ -84,18 +84,7 @@ def status(memory_root: Path, project: str, now: str) -> dict:
             for slot, entry in sorted(entries.items())
             if entry.status == Status.ACTIVE
         ],
-        "waiting": [
-            {
-                "slot": item.slot,
-                "holds": entries[item.slot].statement if item.slot in entries else None,
-                "suggests": item.claim.statement if item.claim else None,
-                "reason": item.reason,
-                "from": item.claim.provenance if item.claim else None,
-                "withheld": item.withheld,
-                "evidence": item.claim.evidence.command if item.claim else None,
-            }
-            for item in store.queue()
-        ],
+        "waiting": _questions(store),
         "open_threads": [
             {"slot": thread.slot, "statement": thread.statement, "seen_at": thread.seen_at}
             for thread in store.left_open(now)
@@ -112,3 +101,30 @@ def _waiting_elsewhere(memory_root: Path, project: str) -> list[dict]:
     others = {other for other in known(memory_root) if other != project and other.startswith("/")}
     counted = [(len(MemoryStore(memory_root / key(other)).queue()), other) for other in sorted(others)]
     return [{"project": other, "waiting": waiting} for waiting, other in sorted(counted, key=lambda c: -c[0]) if waiting]
+
+
+def _questions(store: MemoryStore) -> list[dict]:
+    """What waits for the person, one question per memory.
+
+    A ruling settles everything waiting on a memory at once and acts on the newest of it,
+    so the newest is what the question puts to the person.
+    """
+    entries = store.entries()
+    by_slot: dict[str, list] = {}
+    for item in store.queue():
+        by_slot.setdefault(item.slot, []).append(item)
+    questions = []
+    for slot, items in by_slot.items():
+        newest = items[-1].claim
+        questions.append(
+            {
+                "slot": slot,
+                "holds": entries[slot].statement if slot in entries else None,
+                "suggests": newest.statement if newest else None,
+                "reasons": [item.reason for item in items if item.reason],
+                "from": newest.provenance if newest else None,
+                "withheld": any(item.withheld for item in items),
+                "evidence": newest.evidence.command if newest else None,
+            }
+        )
+    return questions

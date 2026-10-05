@@ -1,5 +1,7 @@
+import fcntl
 import json
 
+import dream.cli
 from dream.cli import main
 from dream.dreaming import key
 from dream.extract import Thread
@@ -89,3 +91,27 @@ def test_purge_lists_what_an_exclusion_would_remove_and_removes_it_only_when_tol
 
     assert main(["purge", "--db", db]) == 0
     assert "no archived session" in capsys.readouterr().out
+
+
+def test_commands_that_change_memory_take_turns_and_say_so_when_they_cannot(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no-settings"))
+    monkeypatch.setattr(dream.cli, "_TURN_WAIT", 0.2)
+    project = tmp_path / "shop"
+    project.mkdir()
+    memory = tmp_path / "memory"
+    copy = MemoryStore(memory / key(str(project.resolve())))
+    copy.folder.mkdir(parents=True)
+    copy.note_threads([Thread("ci-cache", "CI cache for pnpm is not set up.", True, 4)], "session-a", "2026-10-01T09:00:00Z")
+    scope = ["--project", str(project), "--memory", str(memory), "--db", str(tmp_path / "archive.db")]
+
+    with (memory / ".lock").open("w") as other_command:
+        fcntl.flock(other_command, fcntl.LOCK_EX)
+
+        assert main(["close", "ci-cache", *scope]) == 1
+        assert "another dream command is changing memory" in capsys.readouterr().err
+        assert list(copy.threads(now="2026-10-02T09:00:00Z")) == ["ci-cache"]
+        assert main(["status", *scope]) == 0
+        capsys.readouterr()
+
+    assert main(["close", "ci-cache", *scope]) == 0
+    assert copy.threads(now="2026-10-02T09:00:00Z") == {}

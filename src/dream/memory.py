@@ -6,6 +6,7 @@ with or without remcycle. Provenance, evidence and history live beside them in
 """
 
 import json
+import os
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
@@ -178,7 +179,7 @@ class MemoryStore:
 
     def _save(self, records: dict[str, dict]) -> None:
         self._records_file.parent.mkdir(exist_ok=True)
-        self._records_file.write_text(json.dumps(records, indent=2, sort_keys=True) + "\n")
+        _put(self._records_file, json.dumps(records, indent=2, sort_keys=True) + "\n")
 
     def forget(self, slot: str) -> None:
         """Drop what remcycle recorded about a slot. The memory file, if any, is left alone."""
@@ -299,7 +300,7 @@ class MemoryStore:
         usage = json.loads(self._usage_file.read_text()) if self._usage_file.exists() else {}
         usage[slot] = {"reads": usage.get(slot, {}).get("reads", 0) + 1, "last": at}
         self._usage_file.parent.mkdir(exist_ok=True)
-        self._usage_file.write_text(json.dumps(usage, indent=2, sort_keys=True) + "\n")
+        _put(self._usage_file, json.dumps(usage, indent=2, sort_keys=True) + "\n")
         anchor = self._records().get(slot, {}).get("anchor")
         if anchor and not (repository / anchor).exists():
             return (
@@ -350,7 +351,7 @@ class MemoryStore:
         for thread in noted.values():
             thread["checked_to"] = at
         if noted:
-            self._threads_file.write_text(json.dumps(noted, indent=2, sort_keys=True) + "\n")
+            _put(self._threads_file, json.dumps(noted, indent=2, sort_keys=True) + "\n")
 
     def close_thread(
         self, slot: str, *, by: str = "you", session_id: str | None = None, why: str = "", at: str | None = None
@@ -391,8 +392,8 @@ class MemoryStore:
 
     def _threads_save(self, noted: dict[str, dict], closed: dict[str, dict]) -> None:
         self._threads_file.parent.mkdir(exist_ok=True)
-        self._threads_file.write_text(json.dumps(noted, indent=2, sort_keys=True) + "\n")
-        self._closed_file.write_text(json.dumps(closed, indent=2, sort_keys=True) + "\n")
+        _put(self._threads_file, json.dumps(noted, indent=2, sort_keys=True) + "\n")
+        _put(self._closed_file, json.dumps(closed, indent=2, sort_keys=True) + "\n")
 
     def _threads(self) -> dict[str, dict]:
         return json.loads(self._threads_file.read_text()) if self._threads_file.exists() else {}
@@ -408,7 +409,7 @@ class MemoryStore:
     def keep_flat(self) -> None:
         """Keep the index one line per entry however many entries there are, until `allow_topics`."""
         self._flat_file.parent.mkdir(exist_ok=True)
-        self._flat_file.write_text("")
+        _put(self._flat_file, "")
         self._render()
 
     def allow_topics(self) -> None:
@@ -433,7 +434,7 @@ class MemoryStore:
             # The index written below may list topics or leave lines out, and until now it was
             # the only place the lines were held.
             self._lines_file.parent.mkdir(exist_ok=True)
-            self._lines_file.write_text("".join(lines))
+            _put(self._lines_file, "".join(lines))
         for page in self._folder.glob(f"{TOPIC_PAGE}*.md"):
             page.unlink()
         if not lines and not index.exists():
@@ -449,7 +450,7 @@ class MemoryStore:
                 pages.setdefault(topic_of[_slot_of(line)] or "Other", []).append(line)
             named = {topic: f"{TOPIC_PAGE}{re.sub(r'[^a-z0-9]+', '-', topic.lower()).strip('-')}.md" for topic in pages}
             for topic, page in named.items():
-                (self._folder / page).write_text(f"# {topic}\n\n" + "".join(pages[topic]))
+                _put((self._folder / page), f"# {topic}\n\n" + "".join(pages[topic]))
             kept = "".join(line for line in lines if not _slot_of(line))
             for limit in _TOPIC_HOOK_LIMITS:
                 listing = []
@@ -461,7 +462,7 @@ class MemoryStore:
                 text = kept + "".join(listing)
                 if len(text.splitlines()) <= max_lines and len(text.encode()) <= max_bytes:
                     break
-            index.write_text(text)
+            _put(index, text)
             return []
 
         def keep_rank(slot: str) -> tuple:
@@ -476,7 +477,7 @@ class MemoryStore:
             slot = candidates.pop(0)
             lines = [line for line in lines if _slot_of(line) != slot]
             shed.append(slot)
-        index.write_text("".join(lines))
+        _put(index, "".join(lines))
         return shed
 
     def _lines(self) -> list[str]:
@@ -488,7 +489,7 @@ class MemoryStore:
 
     def _keep(self, lines: Sequence[str]) -> None:
         self._lines_file.parent.mkdir(exist_ok=True)
-        self._lines_file.write_text("".join(lines))
+        _put(self._lines_file, "".join(lines))
         self._render()
 
     def modified(self, slot: str) -> str:
@@ -533,7 +534,7 @@ class MemoryStore:
             }
             for q in waiting
         ]
-        self._queue_file.write_text(json.dumps(items, indent=2, sort_keys=True) + "\n")
+        _put(self._queue_file, json.dumps(items, indent=2, sort_keys=True) + "\n")
 
     def _index_drop(self, slot: str) -> None:
         lines = self._lines()
@@ -544,7 +545,7 @@ class MemoryStore:
         return json.loads(self._records_file.read_text()) if self._records_file.exists() else {}
 
     def _write(self, claim: Claim) -> None:
-        (self._folder / f"{claim.slot}.md").write_text(_memory_file(claim))
+        _put((self._folder / f"{claim.slot}.md"), _memory_file(claim))
 
     def _index(self, claim: Claim) -> None:
         if _always_loaded(claim.type, claim.provenance):
@@ -561,6 +562,13 @@ class MemoryStore:
         else:
             lines.append(line)
         self._keep(lines)
+
+
+def _put(file: Path, text: str) -> None:
+    """Replace the file whole, so a reader never finds it half written."""
+    fresh = file.with_name(file.name + ".new")
+    fresh.write_text(text)
+    os.replace(fresh, file)
 
 
 def _entry(slot: str, text: str, record: dict) -> Entry:

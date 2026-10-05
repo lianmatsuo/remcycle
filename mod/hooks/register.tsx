@@ -16,6 +16,9 @@ const status = atom({ plugin: 'remcycle', key: 'status' } as const, null)
 const project = atom({ plugin: 'remcycle', key: 'project' } as const, null)
 const view = atom({ plugin: 'remcycle', key: 'view' } as const, 'home')
 const at = atom({ plugin: 'remcycle', key: 'at' } as const, 0)
+// The change being saved, in words, and what the last one did. One change is saved at a time.
+const busy = atom({ plugin: 'remcycle', key: 'busy' } as const, null)
+const last = atom({ plugin: 'remcycle', key: 'last' } as const, null)
 const page = atom({ plugin: 'remcycle', key: 'page' } as const, 0)
 
 /** How each kind of source reads to the person it came from. */
@@ -198,7 +201,8 @@ function readable(value: unknown): Status | null {
         isText(w.slot) &&
         isTextOrNull(w.holds) &&
         isTextOrNull(w.suggests) &&
-        isText(w.reason) &&
+        Array.isArray(w.reasons) &&
+        w.reasons.every(isText) &&
         isTextOrNull(w.from) &&
         typeof w.withheld === 'boolean' &&
         isTextOrNull(w.evidence),
@@ -241,19 +245,62 @@ async function refresh($: EngineInterface): Promise<void> {
   await update($, status, () => now)
 }
 
-async function rule($: EngineInterface, slot: string, isAccepted: boolean): Promise<void> {
-  await dream($, ['resolve', ...(await scope($)), slot, isAccepted ? '--accept' : '--keep'])
+/**
+ * Saves one change, saying so at once and saying afterwards what it did.
+ *
+ * A press that arrives while another change is being saved does nothing: the two would rewrite
+ * the same files, and the second would land on whatever the first put under the pointer.
+ */
+async function act($: EngineInterface, doing: string, done: string, change: () => Promise<boolean>): Promise<void> {
+  let isMine = false
+  await update($, busy, current => {
+    isMine = current === null
+
+    return current ?? doing
+  })
+
+  if (!isMine) {
+    return
+  }
+
+  let isSaved = false
+
+  try {
+    isSaved = await change()
+  } finally {
+    await update($, last, () => (isSaved ? `Done: ${done}` : `Not saved: ${doing}. Another dream command may be running.`))
+    await refresh($)
+    await update($, busy, () => null)
+  }
+}
+
+/** What the Refresh button does: reads the status again, and lets go of a change that never finished saving. */
+async function reset($: EngineInterface): Promise<void> {
+  await update($, busy, () => null)
   await refresh($)
+}
+
+async function rule($: EngineInterface, slot: string, isAccepted: boolean, hasSuggestion: boolean): Promise<void> {
+  const [doing, done] = !isAccepted
+    ? ['keep', 'kept']
+    : hasSuggestion
+      ? ['take the suggestion for', 'took the suggestion for']
+      : ['retire', 'retired']
+  const args = ['resolve', ...(await scope($)), slot, isAccepted ? '--accept' : '--keep']
+
+  await act($, `${doing} ${heading(slot)}`, `${done} ${heading(slot)}`, async () => (await dream($, args)) !== null)
 }
 
 async function close($: EngineInterface, slot: string): Promise<void> {
-  await dream($, ['close', ...(await scope($)), '--', slot])
-  await refresh($)
+  const args = ['close', ...(await scope($)), '--', slot]
+
+  await act($, `close ${heading(slot)}`, `closed ${heading(slot)}`, async () => (await dream($, args)) !== null)
 }
 
 async function reopen($: EngineInterface, slot: string): Promise<void> {
-  await dream($, ['reopen', ...(await scope($)), '--', slot])
-  await refresh($)
+  const args = ['reopen', ...(await scope($)), '--', slot]
+
+  await act($, `reopen ${heading(slot)}`, `reopened ${heading(slot)}`, async () => (await dream($, args)) !== null)
 }
 
 /** Points the pane at another project, or with null back at the session's own. */
@@ -272,6 +319,7 @@ async function show($: EngineInterface, next: View): Promise<void> {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
+    await update($, busy, () => null)
     await $.tool.register({
       name: 'recall',
       description:
@@ -451,7 +499,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column" rowGap={1}>
           <Text dimColor>No readable answer from the `dream` command yet.</Text>
-          <Button key="refresh" label="Refresh" onPress={() => refresh($)} />
+          <Button key="refresh" label="Refresh" onPress={() => reset($)} />
         </Box>
       )
     }
@@ -459,6 +507,8 @@ export const register: Register = on => {
     const clock = await $.clock.now()
     const shown = await read($, view)
     const viewing = await read($, project)
+    const saving = await read($, busy)
+    const did = await read($, last)
     const learned = newestFirst(
       now.memories.filter(memory => memory.from !== null),
       memory => memory.said_at,
@@ -565,7 +615,8 @@ export const register: Register = on => {
     const full = fullness(now.index)
     const position = now.waiting.length === 0 ? 0 : (await read($, at)) % now.waiting.length
     const question = now.waiting[position]
-    const [tag, why] = question === undefined ? [null, ''] : tagged(question.reason)
+    const [tag, why] = question === undefined ? [null, ''] : tagged(question.reasons[0] ?? '')
+    const findings = question?.reasons.length ?? 0
     const changed = ago(now.last_dream, clock)
 
     return (
@@ -581,9 +632,10 @@ export const register: Register = on => {
           </Box>
           <Box columnGap={1} flexShrink={0}>
             {viewing !== null && <Button key="home-project" label="Back" onPress={() => look($, null)} />}
-            <Button key="refresh" label="Refresh" onPress={() => refresh($)} />
+            <Button key="refresh" label="Refresh" onPress={() => reset($)} />
           </Box>
         </Box>
+        {saving !== null ? <Text color="warning">{`Saving: ${saving}…`}</Text> : did !== null && <Text dimColor>{did}</Text>}
         {Svg === null ? (
           <Box columnGap={3} flexWrap="wrap">
             {now.waiting.length > 0 ? (
@@ -603,14 +655,20 @@ export const register: Register = on => {
             }
           />
         )}
-        {title('Needs you', question !== undefined && <Text dimColor>{`${position + 1} of ${now.waiting.length}`}</Text>)}
+        {title('Needs you', question !== undefined && <Text dimColor>{`${now.waiting.length} left`}</Text>)}
         {question === undefined ? (
           <Text dimColor>Nothing needs you in this project.</Text>
         ) : (
           <Box flexDirection="column" rowGap={1} borderStyle="round" borderDimColor paddingX={1}>
             <Box columnGap={2}>
               <Text bold>{heading(question.slot)}</Text>
-              <Text color="warning">{question.suggests === null ? (tag ?? 'in question') : 'a session disagrees'}</Text>
+              <Text color="warning">
+                {question.suggests !== null
+                  ? 'a session disagrees'
+                  : findings > 1
+                    ? `${findings} findings`
+                    : (tag ?? 'in question')}
+              </Text>
             </Box>
             {question.holds !== null && (
               <Box flexDirection="column">
@@ -621,7 +679,11 @@ export const register: Register = on => {
             {question.suggests === null ? (
               <Box flexDirection="column">
                 <Text dimColor>Why it is in question</Text>
-                <Text>{why}</Text>
+                {findings > 1 ? (
+                  question.reasons.map(reason => <Text>{sentence(reason.replace(/`/g, ''))}</Text>)
+                ) : (
+                  <Text>{why}</Text>
+                )}
               </Box>
             ) : (
               <Box flexDirection="column">
@@ -633,21 +695,23 @@ export const register: Register = on => {
               </Box>
             )}
             {question.withheld && <Text color="warning">Kept out of sessions until you rule.</Text>}
-            <Box justifyContent="space-between">
-              <Box columnGap={1}>
-                <Button
-                  key={`accept-${question.slot}`}
-                  label={question.suggests === null ? 'Retire the memory' : 'Take the suggestion'}
-                  onPress={() => rule($, question.slot, true)}
-                />
-                <Button
-                  key={`keep-${question.slot}`}
-                  label="Keep the memory"
-                  onPress={() => rule($, question.slot, false)}
-                />
+            {saving === null && (
+              <Box justifyContent="space-between">
+                <Box columnGap={1}>
+                  <Button
+                    key={`accept-${question.slot}`}
+                    label={question.suggests === null ? 'Retire the memory' : 'Take the suggestion'}
+                    onPress={() => rule($, question.slot, true, question.suggests !== null)}
+                  />
+                  <Button
+                    key={`keep-${question.slot}`}
+                    label="Keep the memory"
+                    onPress={() => rule($, question.slot, false, question.suggests !== null)}
+                  />
+                </Box>
+                {now.waiting.length > 1 && <Button key="next" label="Skip" onPress={() => update($, at, n => n + 1)} />}
               </Box>
-              {now.waiting.length > 1 && <Button key="next" label="Next" onPress={() => update($, at, n => n + 1)} />}
-            </Box>
+            )}
           </Box>
         )}
         {now.elsewhere.length > 0 && <Text dimColor>Waiting in other projects</Text>}
