@@ -8,11 +8,12 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 from dream.archive import NO_PROJECT, Archive, project_of
-from dream import review
+from dream import outside, review
 from dream.dreaming import GLOBAL, dream, key, render, review_project
 from dream.extract import ClaudeCode
 from dream.gate import JUDGE_SCHEMA, JUDGE_SYSTEM, judge_with
 from dream.memory import MemoryStore
+from dream.outside import witness_with
 from dream.session import context, status
 from dream.settings import Settings, load_settings
 
@@ -92,6 +93,7 @@ def _run(archive: Archive, args: argparse.Namespace) -> int:
         live_root=args.root,
         runner=ClaudeCode(args.model, effort=args.effort),
         judge=judge_with(ClaudeCode(args.model, schema=JUDGE_SCHEMA, system=JUDGE_SYSTEM, effort=args.effort)),
+        witness=witness_with(ClaudeCode(args.model, schema=outside.SCHEMA, system=outside.SYSTEM, effort=args.effort)),
         publish=args.publish,
         limit=args.limit,
         progress=lambda line: print(line, flush=True),
@@ -115,6 +117,8 @@ def _review(archive: Archive, args: argparse.Namespace) -> int:
     )
     print(f"{project}: {report.reviewed} memories reviewed, ${report.cost_usd:.2f} of model use")
     print(f"{report.questions} questions for you (see `dream queue`), {report.unsupported} findings dropped")
+    for failure in report.failures:
+        print(f"a pass failed and its memories will be reviewed next time: {failure}")
     for problem in report.problems:
         print(f"not accepted: {problem}")
     return 0 if report.merged else 1
@@ -149,6 +153,27 @@ def _status(archive: Archive, args: argparse.Namespace) -> int:
 def _resolve(archive: Archive, args: argparse.Namespace) -> int:
     MemoryStore(args.memory / key(_project(args))).resolve(args.slot, accept=args.accept)
     print(f"{args.slot}: {'accepted' if args.accept else 'kept the existing entry'}")
+    return 0
+
+
+def _purge(archive: Archive, args: argparse.Namespace) -> int:
+    kept = archive.under(args.exclude)
+    if not kept:
+        print("no archived session belongs to an excluded project")
+        return 0
+    if not args.yes:
+        print(f"{len(kept)} archived sessions belong to excluded projects:")
+        for session in kept:
+            print(f"  {session.session_id[:8]}  {session.project}  {session.title or ''}  ({session.turns} turns)")
+        print("run again with --yes to remove them from the archive; this cannot be undone")
+        return 0
+    print(f"removed {archive.remove(session.session_id for session in kept)} sessions from the archive")
+    return 0
+
+
+def _close(archive: Archive, args: argparse.Namespace) -> int:
+    MemoryStore(args.memory / key(_project(args))).close_thread(args.slot)
+    print(f"{args.slot}: closed")
     return 0
 
 
@@ -239,6 +264,14 @@ def _parser(settings: Settings) -> argparse.ArgumentParser:
     ruling.add_argument("--keep", dest="accept", action="store_false", help="keep the existing entry")
     resolve.add_argument("--project", type=Path, help="project folder (default: this repository)")
     resolve.add_argument("--memory", type=Path, default=settings.memory, help=argparse.SUPPRESS)
+
+    purge = command("purge", _purge, "remove archived sessions of projects that are now excluded")
+    purge.add_argument("--yes", action="store_true", help="remove them; without it they are only listed")
+
+    close = command("close", _close, "close a thread a session left open")
+    close.add_argument("slot")
+    close.add_argument("--project", type=Path, help="project folder (default: this repository)")
+    close.add_argument("--memory", type=Path, default=settings.memory, help=argparse.SUPPRESS)
 
     note = command("note-read", _note_read, argparse.SUPPRESS)
     note.add_argument("file", type=Path)

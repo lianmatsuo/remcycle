@@ -1,6 +1,6 @@
 import pytest
 
-from dream.extract import Reply
+from dream.extract import ExtractionError, Reply
 from dream.memory import MemoryStore, Open
 from dream.review import review
 
@@ -106,3 +106,40 @@ def test_a_memory_already_reviewed_is_not_sent_again_until_it_changes(folder):
     review(store, model)
     assert len(model.prompts) == 2
     assert "### cutover_status" in model.prompts[1] and "### deploy_target" not in model.prompts[1]
+
+
+def test_a_large_folder_is_reviewed_a_few_memories_at_a_time(folder):
+    put(folder, "formatter", "Format with ruff.", "Format with ruff.")
+    store = MemoryStore(folder)
+    model = Reviewer([noted("cutover_status"), noted("deploy_target"), noted("formatter")])
+
+    report = review(store, model, per_pass=2)
+
+    assert len(model.prompts) == 2
+    assert "### cutover_status" in model.prompts[0] and "### deploy_target" in model.prompts[0]
+    assert "### formatter" in model.prompts[1] and "### deploy_target" not in model.prompts[1]
+    assert report.reviewed == 3
+
+
+def test_a_pass_the_model_fails_on_is_left_for_next_time_and_the_passes_that_worked_are_kept(folder):
+    put(folder, "formatter", "Format with ruff.", "Format with ruff.")
+    store = MemoryStore(folder)
+
+    class FailsOnce(Reviewer):
+        def __call__(self, prompt):
+            if len(self.prompts) == 1:
+                self.prompts.append(prompt)
+                raise ExtractionError("could not run Claude Code: timed out")
+            return super().__call__(prompt)
+
+    model = FailsOnce([noted("cutover_status"), noted("deploy_target"), noted("formatter")])
+
+    report = review(store, model, per_pass=2)
+
+    assert (report.reviewed, report.failures) == (2, ["could not run Claude Code: timed out"])
+    assert sorted(store.probes()) == ["cutover_status", "deploy_target"]
+
+    review(store, model, per_pass=2)
+
+    assert "### formatter" in model.prompts[2] and "### deploy_target" not in model.prompts[2]
+    assert sorted(store.probes()) == ["cutover_status", "deploy_target", "formatter"]

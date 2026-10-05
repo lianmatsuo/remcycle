@@ -1,21 +1,32 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
+
+const NOW = Date.UTC(2026, 9, 5, 15)
 
 const STATUS = {
   project: '/work/shop',
-  entries: 2,
-  withheld: 0,
-  learned: [
+  withheld: 1,
+  last_dream: '2026-10-05T13:00:00+00:00',
+  index: { lines: 18, line_limit: 200, bytes: 2400, byte_limit: 25000 },
+  memories: [
+    { slot: 'ci-runner', statement: 'CI is self-hosted.', from: null, said_at: null },
     {
       slot: 'package-manager',
       statement: 'Use pnpm for JS projects.',
       from: 'human',
-      evidence: 'dream show 7f3a9c2e --first 2 --last 2',
+      said_at: '2026-10-02T15:00:00+00:00',
+    },
+    {
+      slot: 'review-style',
+      statement: 'Reviews should name the file and line.',
+      from: 'inferred',
+      said_at: '2026-10-05T09:00:00+00:00',
     },
   ],
   waiting: [
     {
       slot: 'deploy-target',
+      holds: 'Deploys go to the staging cluster first.',
       suggests: 'Deploys go straight to production.',
       reason: '',
       from: 'inferred',
@@ -24,14 +35,17 @@ const STATUS = {
     },
     {
       slot: 'cutover-status',
+      holds: 'The database cutover is planned for 12 August.',
       suggests: null,
       reason: 'it looks dated: the cutover date has passed',
       from: null,
-      withheld: false,
+      withheld: true,
       evidence: null,
     },
   ],
-  open_threads: ['CI cache for pnpm is not set up.'],
+  open_threads: [
+    { slot: 'ci-cache', statement: 'CI cache for pnpm is not set up.', seen_at: '2026-10-03T15:00:00+00:00' },
+  ],
 }
 
 const PANE = {
@@ -154,25 +168,171 @@ test('the archive is brought up to date when a session ends', async ($, on) => {
   expect(calls).toEqual([['dream', 'ingest']])
 })
 
-test('the pane shows what waits for a ruling and passes the ruling on', async ($, on) => {
+test('the pane opens on a summary of what needs the person, what is remembered and how full the index is', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  commandLine(on, { status: JSON.stringify(STATUS) })
+
+  const terminal = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await terminal.press({ key: 'refresh' })
+
+  expect(await terminal.find({ type: 'Text', text: /^shop$/ })).toBeDefined()
+  expect(await terminal.find({ type: 'Text', text: /^Changed by a dream 2h ago$/ })).toBeDefined()
+  expect(await terminal.find({ type: 'Text', text: /^2 need you$/ })).toBeDefined()
+  expect(await terminal.find({ type: 'Text', text: /^3 memories$/ })).toBeDefined()
+  expect(await terminal.find({ type: 'Text', text: /^Index 10% full$/ })).toBeDefined()
+  await terminal.unmount()
+
+  const desktop = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const tiles = await desktop.find({ type: 'Svg' })
+
+  expect(tiles?.props.alt).toBe(
+    '2 need you. 3 memories in use, 2 learned from sessions. The index is 10% full: 2.4 of 25 KB.',
+  )
+  expect(tiles?.props.source).toMatch(/^<svg [^>]*width="440"/)
+  expect(await desktop.find({ type: 'Text', text: /^Changed by a dream 2h ago$/ })).toBeDefined()
+  await desktop.unmount()
+})
+
+test('questions come one at a time with both sides, and a ruling is passed on', async ($, on) => {
+  mock.clock(on, { now: NOW })
   const calls = commandLine(on, { status: JSON.stringify(STATUS), resolve: 'deploy-target: took the new claim\n' })
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     await ui.press({ key: 'refresh' })
 
-    expect(await ui.find({ type: 'Text', text: /2 in use, 0 withheld/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /deploy-target: a session suggests \(inferred\) Deploys go straight/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /CI cache for pnpm is not set up/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^1 of 2$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Deploy target$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Deploys go to the staging cluster first\.$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Deploys go straight to production\.$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /guessed from a session/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /The database cutover/ })).toBeUndefined()
 
-    expect(await ui.find({ type: 'Text', text: /cutover-status: it looks dated: the cutover date has passed/ })).toBeDefined()
+    await ui.press({ key: 'next' })
+
+    expect(await ui.find({ type: 'Text', text: /^2 of 2$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Cutover status$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^looks dated$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^The database cutover is planned for 12 August\.$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^The cutover date has passed$/ })).toBeDefined()
+    expect((await ui.find({ type: 'Text', text: /^Kept out of sessions until you rule\.$/ }))?.props.color).toBe('warning')
     expect((await ui.find({ key: 'accept-cutover-status' }))?.props.label).toBe('Retire it')
+    expect(await ui.find({ type: 'Text', text: /Deploys go straight to production/ })).toBeUndefined()
 
-    await ui.press({ key: 'accept-deploy-target' })
     await ui.press({ key: 'keep-cutover-status' })
+    await ui.press({ key: 'next' })
+    await ui.press({ key: 'accept-deploy-target' })
 
-    expect(calls).toContainEqual(['dream', 'resolve', 'deploy-target', '--accept'])
     expect(calls).toContainEqual(['dream', 'resolve', 'cutover-status', '--keep'])
+    expect(calls).toContainEqual(['dream', 'resolve', 'deploy-target', '--accept'])
+    await ui.unmount()
+  }
+})
+
+test('with nothing waiting the pane says so and offers no question', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  commandLine(on, { status: JSON.stringify({ ...STATUS, waiting: [] }) })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'refresh' })
+
+    expect(await ui.find({ type: 'Text', text: /^Nothing needs you\.$/ })).toBeDefined()
+    expect(await ui.find({ key: 'next' })).toBeUndefined()
+    await ui.unmount()
+  }
+})
+
+test('the newest things the dream learned are listed, and every memory is a button away', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  commandLine(on, { status: JSON.stringify(STATUS) })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'refresh' })
+
+    expect(await ui.find({ type: 'Text', text: /^Review style$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^6h$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Package manager$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^3d$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /CI is self-hosted/ })).toBeUndefined()
+    expect((await ui.find({ key: 'show-memories' }))?.props.label).toBe('All 3')
+
+    await ui.press({ key: 'show-memories' })
+
+    expect(await ui.find({ type: 'Text', text: /^CI is self-hosted\.$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Written before remcycle$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^You said this$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Guessed from a session, not confirmed by you$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Deploys go straight to production/ })).toBeUndefined()
+
+    await ui.press({ key: 'show-home' })
+
+    expect(await ui.find({ type: 'Text', text: /^1 of 2$/ })).toBeDefined()
+    await ui.unmount()
+  }
+})
+
+test('a long list of memories is shown a page at a time', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  const memories = Array.from({ length: 14 }, (_, i) => ({
+    slot: `note-${String(i).padStart(2, '0')}`,
+    statement: `Statement ${i}.`,
+    from: null,
+    said_at: null,
+  }))
+  commandLine(on, { status: JSON.stringify({ ...STATUS, memories }) })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'refresh' })
+    await ui.press({ key: 'show-memories' })
+
+    expect(await ui.find({ type: 'Text', text: /^1 to 12 of 14$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Statement 11\.$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Statement 12\.$/ })).toBeUndefined()
+
+    await ui.press({ key: 'later' })
+
+    expect(await ui.find({ type: 'Text', text: /^13 to 14 of 14$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Statement 13\.$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Statement 0\.$/ })).toBeUndefined()
+
+    await ui.press({ key: 'show-home' })
+    await ui.unmount()
+  }
+})
+
+test('a thread left open shows its age and can be marked done', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  const calls = commandLine(on, { status: JSON.stringify(STATUS), close: 'ci-cache: closed\n' })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'refresh' })
+
+    expect(await ui.find({ type: 'Text', text: /^Ci cache$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^CI cache for pnpm is not set up\.$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^2d$/ })).toBeDefined()
+
+    await ui.press({ key: 'close-ci-cache' })
+
+    expect(calls).toContainEqual(['dream', 'close', 'ci-cache'])
+    await ui.unmount()
+  }
+})
+
+test('an answer this version of the pane cannot read is treated as no answer', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  commandLine(on, {
+    status: JSON.stringify({ project: '/work/shop', entries: 2, withheld: 0, learned: [], waiting: [], open_threads: ['x'] }),
+  })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'refresh' })
+
+    expect(await ui.find({ type: 'Text', text: /No readable answer from the `dream` command yet/ })).toBeDefined()
     await ui.unmount()
   }
 })

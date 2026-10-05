@@ -136,11 +136,11 @@ Two faults showed up and were fixed: the supersession described above, and five 
 
 ## Build order
 
-1. **Archive and search.** Built: `dream ingest`, `dream search`, `dream show`, with redaction, excluded projects and settings.
-2. **The dream.** Built: `dream run`, `dream queue`, `dream resolve`, with the per-session digest kept in the archive.
+1. **Archive and search.** Built: `dream ingest`, `dream search`, `dream show`, `dream purge`, with redaction, excluded projects and settings.
+2. **The dream.** Built: `dream run`, `dream queue`, `dream resolve`, `dream close`, with the per-session digest kept in the archive.
 3. **Mod.** Built: start-of-conversation context, the recall tool, ingest at session end, the warning on stale memories, read counts.
 4. **Pane and rulings.** Built: `/remcycle`.
-5. **MCP sources.** Not built.
+5. **Outside sources.** Built for git and GitHub: commits and merged pull requests close threads finished outside a session. Slack, Jira and Notion are not built: they can be read only from inside a session, through its connectors.
 
 Built after the first full run, from the unbuilt list and from a comparison with gbrain:
 

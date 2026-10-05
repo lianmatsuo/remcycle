@@ -49,6 +49,18 @@ class Past:
 
 
 @dataclass(frozen=True)
+class Left:
+    """Something a session left unfinished."""
+
+    slot: str
+    statement: str
+    seen_at: str
+    """When a session last reported it open."""
+    checked_to: str | None = None
+    """Up to when the repository's own changes have been looked at for it."""
+
+
+@dataclass(frozen=True)
 class Open:
     """Something only the person can settle.
 
@@ -301,12 +313,32 @@ class MemoryStore:
 
     def threads(self, now: str) -> dict[str, str]:
         """Open threads by slot, leaving out any not seen for two weeks."""
+        return {thread.slot: thread.statement for thread in self.left_open(now)}
+
+    def left_open(self, now: str) -> list[Left]:
+        """Open threads with when each was last seen, leaving out any not seen for two weeks."""
         cutoff = datetime.fromisoformat(now) - _THREAD_LIFE
-        return {
-            slot: thread["statement"]
+        return [
+            Left(slot, thread["statement"], thread["seen_at"], thread.get("checked_to"))
             for slot, thread in self._threads().items()
             if datetime.fromisoformat(thread["seen_at"]) >= cutoff
-        }
+        ]
+
+    def note_checked(self, at: str) -> None:
+        """Record that the repository's changes up to `at` have been looked at for every open thread."""
+        noted = self._threads()
+        for thread in noted.values():
+            thread["checked_to"] = at
+        if noted:
+            self._threads_file.write_text(json.dumps(noted, indent=2, sort_keys=True) + "\n")
+
+    def close_thread(self, slot: str) -> None:
+        """Close a thread on the person's word. A later session that reports it open reopens it."""
+        noted = self._threads()
+        if slot not in noted:
+            raise LookupError(f"no open thread named {slot!r}")
+        del noted[slot]
+        self._threads_file.write_text(json.dumps(noted, indent=2, sort_keys=True) + "\n")
 
     def _threads(self) -> dict[str, dict]:
         return json.loads(self._threads_file.read_text()) if self._threads_file.exists() else {}
@@ -325,6 +357,11 @@ class MemoryStore:
     def _render(self, max_lines: int = INDEX_LINE_LIMIT, max_bytes: int = INDEX_BYTE_LIMIT) -> list[str]:
         lines = self._lines()
         index = self._folder / INDEX
+        if lines and not self._lines_file.exists():
+            # The index written below may list topics or leave lines out, and until now it was
+            # the only place the lines were held.
+            self._lines_file.parent.mkdir(exist_ok=True)
+            self._lines_file.write_text("".join(lines))
         for page in self._folder.glob(f"{TOPIC_PAGE}*.md"):
             page.unlink()
         if not lines and not index.exists():

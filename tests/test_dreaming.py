@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import pytest
 
 import dream.dreaming
@@ -8,6 +10,7 @@ from dream.session import context, status
 from dream.extract import ExtractionError, Reply
 from dream.claims import Status
 from dream.memory import MemoryStore
+from dream.outside import Finished, Witnessed
 from dream.reconcile import Withhold
 from support import assistant_text, human, put_session
 
@@ -239,6 +242,9 @@ def test_a_new_session_is_given_what_applies_everywhere_and_what_this_project_le
         "everywhere": ["Use pnpm for JS projects."],
         "open_threads": [],
     }
+    assert status(tmp_path / "memory", PROJECT, now="2026-10-03T09:00:00+00:00")["open_threads"] == [
+        {"slot": "ci-cache", "statement": "CI cache for pnpm is not set up.", "seen_at": "2026-10-01T09:00:02.000Z"}
+    ]
 
 
 def test_status_lists_what_the_dream_holds_for_a_project_and_what_waits_on_the_person(archive, claude, tmp_path):
@@ -254,14 +260,66 @@ def test_status_lists_what_the_dream_holds_for_a_project_and_what_waits_on_the_p
     dreamt(archive, claude, tmp_path, Disagrees())
 
     state = status(tmp_path / "memory", PROJECT, now="2026-10-03T09:00:00+00:00")
-    assert (state["entries"], state["withheld"]) == (2, 0)
-    assert state["learned"] == [
-        {"slot": "package-manager", "statement": "Use pnpm for JS projects.", "from": "human", "evidence": "dream show s-pnpm --first 2 --last 2"}
+    assert state["withheld"] == 0
+    assert state["memories"] == [
+        {"slot": "deploy-target", "statement": "Deploys go to the staging cluster first.", "from": None, "said_at": None},
+        {"slot": "package-manager", "statement": "Use pnpm for JS projects.", "from": "human",
+         "said_at": "2026-10-01T09:00:02.000Z"},
     ]
+    index = (
+        "- [Deploy target](deploy-target.md) — staging first\n"
+        "- [Package manager](package-manager.md) — Use pnpm for JS projects.\n"
+    )
+    assert state["index"] == {"lines": 2, "line_limit": 200, "bytes": len(index.encode()), "byte_limit": 25_000}
     assert state["waiting"] == [
-        {"slot": "deploy-target", "suggests": "Deploys go straight to production.", "reason": "", "from": "inferred",
+        {"slot": "deploy-target", "holds": "Deploys go to the staging cluster first.",
+         "suggests": "Deploys go straight to production.", "reason": "", "from": "inferred",
          "withheld": False, "evidence": "dream show s-pnpm --first 1 --last 1"}
     ]
+
+
+def test_a_thread_the_repository_shows_was_finished_outside_any_session_is_closed(archive, claude, tmp_path):
+    repo = tmp_path / "shop"
+    repo.mkdir()
+    put_session(claude, "s-open", [human("the CI cache for pnpm still needs setting up", 0)], cwd=str(repo))
+    ci_cache = {"slot": "ci-cache", "state": "open", "statement": "CI cache for pnpm is not set up.", "turn": 0}
+    lint = {"slot": "lint-rules", "state": "open", "statement": "Lint rules are not agreed.", "turn": 0}
+
+    class LeavesThreads(Model):
+        def __call__(self, prompt):
+            reply = super().__call__(prompt)
+            return Reply({**reply.data, "claims": [], "threads": [ci_cache, lint]}, reply.cost_usd)
+
+    asked = []
+
+    def witness(repository, threads):
+        asked.append((repository, [(thread.slot, thread.checked_to) for thread in threads]))
+        if len(asked) > 1:
+            return Witnessed()
+        return Witnessed([Finished("ci-cache", "commit 3f2a9c1", "CI cache for pnpm now restores")], True, 0.02)
+
+    first = dreamt(archive, claude, tmp_path, LeavesThreads(), witness=witness, now="2026-10-05T03:30:00+00:00")
+    copy = MemoryStore(tmp_path / "memory" / dream.dreaming.key(str(repo)))
+
+    assert asked == [(repo, [("ci-cache", None), ("lint-rules", None)])]
+    assert copy.threads(now="2026-10-05T04:00:00+00:00") == {"lint-rules": "Lint rules are not agreed."}
+    assert first.projects[0].closed == [("ci-cache", "commit 3f2a9c1")]
+    assert "Closed `ci-cache`: finished by commit 3f2a9c1" in dream.dreaming.render(first)
+    assert first.cost_usd == pytest.approx(0.04)
+
+    dreamt(archive, claude, tmp_path, LeavesThreads(), witness=witness, now="2026-10-06T03:30:00+00:00")
+
+    assert asked[1] == (repo, [("lint-rules", "2026-10-05T03:30:00+00:00")])
+
+
+def test_status_says_when_a_dream_last_changed_the_projects_memory(archive, claude, tmp_path):
+    pnpm_session(claude)
+    assert status(tmp_path / "memory", PROJECT, now="2026-10-03T09:00:00+00:00")["last_dream"] is None
+
+    dreamt(archive, claude, tmp_path, Model())
+
+    changed = datetime.fromisoformat(status(tmp_path / "memory", PROJECT, now="2026-10-03T09:00:00+00:00")["last_dream"])
+    assert abs((datetime.now(UTC) - changed).total_seconds()) < 60
 
 
 def test_a_fact_about_a_file_that_has_gone_is_withheld_by_the_next_dream_even_with_no_new_sessions(

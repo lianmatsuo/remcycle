@@ -1,7 +1,9 @@
+import os
+
 import pytest
 
 from dream.claims import ClaimType, Evidence, Provenance, Scope
-from dream.extract import Correction, ExtractionError, Reply, extract
+from dream.extract import ClaudeCode, Correction, ExtractionError, Reply, extract
 from dream.transcript import Author, Kind, Turn
 
 SESSION = "7f3a9c2e-1b4d-4e6f-8a90-123456789abc"
@@ -130,3 +132,23 @@ def test_a_correction_counts_against_an_entry_only_when_the_person_typed_it():
     extraction = extract(SESSION, TURNS, known={}, runner=answering(corrections=[typed, not_typed]))
 
     assert extraction.corrections == (Correction("package-manager", Evidence(SESSION, 3, 3)),)
+
+
+def test_the_model_step_runs_without_the_plugins_of_the_session_that_started_it(tmp_path, monkeypatch):
+    stand_in = tmp_path / "claude"
+    stand_in.write_text(
+        "#!/bin/sh\n"
+        "cat > /dev/null\n"
+        'printf \'{"structured_output": {"plugins": "%s", "hooks": "%s", "home": "%s"}, "total_cost_usd": 0.01}\''
+        ' "${CLAUDE_CODE_PLUGIN_DIRS-unset}" "${CLAUDE_CODE_ENABLE_FUNCTION_HOOKS-unset}" "$HOME"\n'
+    )
+    stand_in.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+    monkeypatch.setenv("CLAUDE_CODE_PLUGIN_DIRS", "/somewhere/mod")
+    monkeypatch.setenv("CLAUDE_CODE_ENABLE_FUNCTION_HOOKS", "1")
+    monkeypatch.setenv("HOME", "/home/me")
+
+    reply = ClaudeCode()("what did this session establish?")
+
+    assert reply.data == {"plugins": "unset", "hooks": "unset", "home": "/home/me"}
+    assert reply.cost_usd == 0.01

@@ -53,6 +53,7 @@ The model is used for one step only: reading a session and proposing claims, eac
 - A memory written before remcycle is never replaced without your ruling. A claim that differs from it is put to you.
 - A claim lands on the entry it is about even when the model names it differently: by another spelling, a known alias, or because it says what the entry already says.
 - A fact about a file is withheld once that file is gone from the repository, and an entry you corrected Claude for following leaves the index. Both wait for your ruling.
+- A thread a session left open is closed when a later session finishes it, or when a commit or merged pull request in the project's repository did. The model is asked which changes finished which threads, and a change counts only if its own words, quoted, show it. Commits are read with git and pull requests with `gh`, where it is installed and signed in.
 
 The dream works on its own copy of each project's memory under `~/.local/share/remcycle/memory/`, staged and checked before it is accepted. One of the checks asks the model: given only the index, would you still open the right memory for each entry's probe question? A change that makes the index worse at that is refused.
 
@@ -64,13 +65,15 @@ uv run dream queue
 
 Lists what is waiting for you. Settle one with `dream resolve SLOT --accept` or `--keep`. Accepting takes the new claim, or retires the entry where that was the question. A retired entry leaves sessions but stays on file.
 
+A thread a session left open is closed with `dream close SLOT`. It stays closed unless a later session reports it open again.
+
 ```bash
 uv run dream review
 ```
 
-Reads the memories this project already has, which the dream otherwise touches only when a session says something about them. It gives each a topic and a probe question, and puts to you any that look dated, repeat each other or disagree, each backed by words quoted from the memories themselves. It changes and removes nothing. On the development machine, reviewing 19 memories cost $2.28 at API prices with Sonnet, so try `effort = "low"` or `model = "haiku"` in the settings file before a large folder.
+Reads the memories this project already has, which the dream otherwise touches only when a session says something about them. It gives each a topic and a probe question, and puts to you any that look dated, repeat each other or disagree, each backed by words quoted from the memories themselves. It changes and removes nothing. A large folder is reviewed 20 memories at a time; a pass the model fails on is left for the next run and the passes that worked are kept. On the development machine, reviewing 19 memories cost $2.28 at API prices with Sonnet, so try `effort = "low"` or `model = "haiku"` in the settings file before a large folder.
 
-The model step runs through your own Claude Code, headless (`claude -p`), with no tools, no settings and no transcript. It uses your plan's usage: on the development machine one long session cost about $0.58 at API prices with Sonnet. Choose the model with `model = "haiku"` in the settings file or `--model`.
+The model step runs through your own Claude Code, headless (`claude -p`), with no tools, no settings, no plugins and no transcript. It uses your plan's usage: on the development machine one long session cost about $0.58 at API prices with Sonnet. Choose the model with `model = "haiku"` in the settings file or `--model`.
 
 ## Mod
 
@@ -80,7 +83,7 @@ The model step runs through your own Claude Code, headless (`claude -p`), with n
 - gives Claude a `recall` tool that searches memory and the archive, takes several phrasings at once, and reads turns back;
 - brings the archive up to date when a session ends;
 - warns Claude when it reads a memory about a file that no longer exists;
-- adds `/remcycle`, a pane showing what the dream holds for the project and what waits for your ruling, with buttons to take a claim, keep an entry or retire one.
+- adds `/remcycle`, a pane showing at a glance what waits for your ruling, how many memories are in use and where they came from, how full the index is, what the dream learned lately and what sessions left open. Its buttons take a claim, keep or retire an entry, and close a thread.
 
 It calls the `dream` command, so that has to be on your `PATH`:
 
@@ -90,6 +93,15 @@ uv tool install --editable .
 
 ```bash
 claude --plugin-dir mod
+```
+
+That loads it for one session. To load it in every session, name the folder in the `env` block of `~/.claude/settings.json`:
+
+```json
+"env": {
+  "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/remcycle/mod",
+  "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1"
+}
 ```
 
 It was written against Claude Code 2.1.286. The mod API is early access and can change between releases.
@@ -103,7 +115,7 @@ It was written against Claude Code 2.1.286. The mod API is early access and can 
 The archive stores what you typed into every session, word for word. Three things limit the exposure:
 
 - **Redaction.** Before a turn is stored, text shaped like a credential is replaced with `[redacted]`: common API key and token formats, private key blocks, passwords inside connection URLs, and values assigned to names such as `API_KEY` or `PASSWORD`. This is pattern matching. A secret with no recognisable shape is stored as written.
-- **Excluded projects.** Sessions from a listed project, or from anything inside it, are never archived. Excluding a project does not remove sessions that were archived before it was listed.
+- **Excluded projects.** Sessions from a listed project, or from anything inside it, are never archived. Sessions archived before the project was listed stay until you remove them: `dream purge` lists them and `dream purge --yes` deletes them and rewrites the file so their text is gone from it. Memory the dream already drew from them, under `~/.local/share/remcycle/memory/`, is not removed.
 - **File permissions.** The archive file is readable only by your user.
 
 The archive is one local SQLite file and ingest sends nothing anywhere. The dream is different: it sends the prose of each unread session, after redaction, to the model through your own Claude Code, as any session would.

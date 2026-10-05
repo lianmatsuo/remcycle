@@ -6,6 +6,7 @@ it cites, and it carries a person's authority only if a person typed that passag
 """
 
 import json
+import os
 import re
 import subprocess
 import tempfile
@@ -391,6 +392,9 @@ SCHEMA = {
 }
 
 
+_PLUGIN_SWITCHES = ("CLAUDE_CODE_PLUGIN_DIRS", "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS")
+
+
 class ClaudeCode:
     """Asks the user's own Claude Code, run headless, so remcycle never handles credentials.
 
@@ -426,9 +430,18 @@ class ClaudeCode:
             "--no-session-persistence",
             *(["--effort", self._effort] if self._effort else []),
         ]  # fmt: skip
+        # A session passes its plugin folders down to what it starts. Loaded here, a plugin would
+        # add to the prompt and run its own hooks around every call.
+        plain = {name: value for name, value in os.environ.items() if name not in _PLUGIN_SWITCHES}
         try:
             done = subprocess.run(
-                command, input=prompt, capture_output=True, text=True, timeout=self._timeout, cwd=tempfile.gettempdir()
+                command,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=self._timeout,
+                cwd=tempfile.gettempdir(),
+                env=plain,
             )
         except (OSError, subprocess.TimeoutExpired) as e:
             raise ExtractionError(f"could not run Claude Code: {e}") from e

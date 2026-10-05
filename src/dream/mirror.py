@@ -86,6 +86,12 @@ class Mirror:
         self._save_synced({name: _digest(path) for name, path in ours.items()})
         self._commit("published to live memory")
 
+    def last(self, kind: str) -> str | None:
+        """When the mirror last recorded a change of this kind, such as `dream`. None if it never has."""
+        if not (self.folder / ".git").exists():
+            return None
+        return self._git("log", "-1", "--format=%cI", f"--grep=^{kind}") or None
+
     def _synced(self) -> dict[str, str]:
         """What each live file held when it was last taken in or written, by content hash."""
         return json.loads(self._synced_file.read_text()) if self._synced_file.exists() else {}

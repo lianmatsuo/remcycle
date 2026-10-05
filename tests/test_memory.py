@@ -167,6 +167,24 @@ def test_open_threads_are_kept_until_finished_or_two_weeks_stale(folder):
     assert store.threads(now="2026-10-12T09:00:00Z") == {"old-idea": "Try bun."}
 
 
+def test_the_person_can_close_a_thread_themselves_and_it_stays_closed_until_a_session_reopens_it(folder):
+    store = MemoryStore(folder)
+    store.note_threads(
+        [Thread("ci-cache", "CI cache for pnpm is not set up yet.", True, 4), Thread("old-idea", "Try bun.", True, 9)],
+        "session-a",
+        "2026-10-01T09:00:00Z",
+    )
+
+    store.close_thread("ci-cache")
+
+    assert store.threads(now="2026-10-02T09:00:00Z") == {"old-idea": "Try bun."}
+    with pytest.raises(LookupError, match="ci-cache"):
+        store.close_thread("ci-cache")
+
+    store.note_threads([Thread("ci-cache", "CI cache is still missing.", True, 2)], "session-b", "2026-10-03T09:00:00Z")
+    assert store.threads(now="2026-10-04T09:00:00Z") == {"ci-cache": "CI cache is still missing.", "old-idea": "Try bun."}
+
+
 def test_ruling_for_the_existing_entry_puts_a_withheld_one_back_as_it_was(folder):
     store = MemoryStore(folder)
     before = (folder / "deploy_target.md").read_bytes()
@@ -348,3 +366,49 @@ def test_a_line_a_session_adds_to_the_topic_index_is_kept_as_that_entrys_line(fo
 
     assert "- [Release notes](release_notes.md) — written by hand each Friday\n" in (folder / "_topic-other.md").read_text()
     assert "[Other](_topic-other.md) — 1 memory: Release notes" in (folder / "MEMORY.md").read_text()
+
+
+@pytest.fixture
+def written_by_claude(tmp_path):
+    """A folder only Claude Code has written to: four memories, one index line each, nothing of remcycle's."""
+    folder = tmp_path / "theirs"
+    folder.mkdir()
+    lines = []
+    for slot, hook in [("deploy_target", "staging first"), ("ci_runner", "self-hosted"), ("formatter", "ruff"), ("linter", "ruff too")]:
+        (folder / f"{slot}.md").write_text(LEGACY_FILE.replace("deploy-target", slot))
+        lines.append(f"- [{slot}]({slot}.md) — {hook}\n")
+    (folder / "MEMORY.md").write_text("".join(lines))
+    return folder
+
+
+def test_a_folder_claude_code_wrote_keeps_every_index_line_when_its_index_turns_into_topics(written_by_claude):
+    store = MemoryStore(written_by_claude, topics_after=3)
+
+    store.set_topic("deploy_target", "Deploys and CI")
+    store.set_topic("ci_runner", "Deploys and CI")
+    store.set_topic("formatter", "Tooling")
+    store.set_topic("linter", "Tooling")
+    store.fit_index(200, 25_000)
+
+    assert (written_by_claude / "MEMORY.md").read_text() == (
+        "- [Deploys and CI](_topic-deploys-and-ci.md) — 2 memories: deploy_target, ci_runner\n"
+        "- [Tooling](_topic-tooling.md) — 2 memories: formatter, linter\n"
+    )
+    assert (written_by_claude / "_topic-deploys-and-ci.md").read_text() == (
+        "# Deploys and CI\n\n- [deploy_target](deploy_target.md) — staging first\n- [ci_runner](ci_runner.md) — self-hosted\n"
+    )
+    assert (written_by_claude / "_topic-tooling.md").read_text() == (
+        "# Tooling\n\n- [formatter](formatter.md) — ruff\n- [linter](linter.md) — ruff too\n"
+    )
+
+
+def test_a_line_left_out_of_a_folder_claude_code_wrote_comes_back_when_there_is_room(written_by_claude):
+    store = MemoryStore(written_by_claude)
+    whole = (written_by_claude / "MEMORY.md").read_text()
+
+    left_out = store.fit_index(3, 25_000)
+    assert len(left_out) == 1
+    assert len((written_by_claude / "MEMORY.md").read_text().splitlines()) == 3
+
+    assert store.fit_index(200, 25_000) == []
+    assert (written_by_claude / "MEMORY.md").read_text() == whole

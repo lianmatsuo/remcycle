@@ -20,6 +20,7 @@ from dream.gate import Judge, check
 from dream.memory import MemoryStore
 from dream.memory import INDEX_BYTE_LIMIT, INDEX_LINE_LIMIT, SIDE
 from dream.mirror import LiveChanged, Mirror
+from dream.outside import Witness
 from dream.review import ReviewReport, review
 from dream.reconcile import (
     Add,
@@ -54,6 +55,8 @@ class ProjectReport:
     published: bool = False
     unindexed: list[str] = field(default_factory=list)
     """Entries whose index line was dropped to keep the index within what Claude Code loads."""
+    closed: list[tuple[str, str]] = field(default_factory=list)
+    """Threads a change in the repository finished, each with that change."""
 
     def count(self, kind: type) -> int:
         return sum(isinstance(op, kind) for op in self.ops)
@@ -82,9 +85,14 @@ def dream(
     limit: int | None = None,
     now: str | None = None,
     judge: Judge | None = None,
+    witness: Witness | None = None,
     progress: Callable[[str], None] = lambda line: None,
 ) -> DreamReport:
-    """Read up to `limit` unread sessions and bring each project's memory up to date."""
+    """Read up to `limit` unread sessions and bring each project's memory up to date.
+
+    With a `witness`, each project's repository is also asked whether its own changes
+    finished a thread that no session has reported finished.
+    """
     now = now or datetime.now(UTC).isoformat()
     report = DreamReport()
     work: dict[str, list[Undreamt]] = {project: [] for project in _known(memory_root)}
@@ -140,7 +148,17 @@ def dream(
         store.apply(gone)
         outcome.ops.extend(gone)
         outcome.unindexed = store.fit_index(INDEX_LINE_LIMIT - _HEADROOM_LINES, INDEX_BYTE_LIMIT - _HEADROOM_BYTES)
-        if not (read or outcome.ops or outcome.unindexed):
+        looked = False
+        if witness and Path(project).is_dir() and (left := store.left_open(now)):
+            seen = witness(Path(project), left)
+            looked = seen.asked
+            report.cost_usd += seen.cost_usd
+            for done in seen.finished:
+                store.close_thread(done.slot)
+                outcome.closed.append((done.slot, done.ref))
+            if looked:
+                store.note_checked(now)
+        if not (read or outcome.ops or outcome.unindexed or looked):
             continue
         if _settle(mirror, outcome, f"dream: {len(read)} sessions", judge):
             for session_id in read:
@@ -151,7 +169,7 @@ def dream(
                     outcome.published = True
                 except LiveChanged as e:
                     outcome.problems.append(str(e))
-        if outcome.ops or outcome.unsupported or outcome.problems or outcome.unindexed:
+        if outcome.ops or outcome.unsupported or outcome.problems or outcome.unindexed or outcome.closed:
             report.projects.append(outcome)
 
     if global_claims:
@@ -285,6 +303,8 @@ def render(report: DreamReport) -> str:
                     lines.append(f"- Question on `{slot}`: {reason}")
                 case Alias(slot, alias):
                     lines.append(f"- `{slot}` is also called `{alias}`")
+        for slot, ref in project.closed:
+            lines.append(f"- Closed `{slot}`: finished by {ref}")
         if project.unindexed:
             lines.append(
                 f"- {len(project.unindexed)} entries left the index to keep it within what Claude Code loads "

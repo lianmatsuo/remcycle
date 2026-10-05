@@ -398,3 +398,33 @@ def test_several_phrasings_are_searched_together_and_a_turn_more_of_them_find_ra
 
     assert found(hits) == [("s-1", 1), ("s-1", 0)]
     assert all(hit.matched_all for hit in hits)
+
+
+def test_sessions_archived_before_their_project_was_excluded_can_be_found_and_removed_for_good(root, tmp_path):
+    put_session(
+        root,
+        "s-private",
+        [human("the zebrafinch contract is confidential", 0), {"type": "custom-title", "customTitle": "Contract terms"}],
+        cwd="/work/private-client/api",
+    )
+    put_session(root, "s-open", [human("always use pnpm here", 0)], cwd="/work/demo")
+    file = tmp_path / "archive.db"
+
+    with Archive(file) as archive:
+        archive.ingest(root)
+        archive.record_dream("s-private")
+        archive.keep_digest("s-private", {"summary": "zebrafinch contract terms"})
+
+        kept = archive.under(["/work/private-client"])
+        assert [(k.session_id, k.project, k.title, k.turns) for k in kept] == [
+            ("s-private", "/work/private-client/api", "Contract terms", 1)
+        ]
+
+        assert archive.remove(["s-private"]) == 1
+
+        assert archive.under(["/work/private-client"]) == []
+        assert archive.search("zebrafinch", project=None) == []
+        assert archive.digest("s-private") is None
+        assert found(archive.search("pnpm", project=None)) == [("s-open", 0)]
+
+    assert all(b"zebrafinch" not in left.read_bytes() for left in tmp_path.glob("archive.db*"))

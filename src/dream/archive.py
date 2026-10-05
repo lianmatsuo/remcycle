@@ -90,6 +90,21 @@ def project_of(cwd: str | None) -> str:
     return _CLAUDE_WORKTREE.sub("", cwd)
 
 
+def _within(project: str | None, parents: Iterable[str]) -> bool:
+    """Whether the project is one of `parents` or lies inside one."""
+    return any(project == parent or (project or "").startswith(parent.rstrip("/") + "/") for parent in parents)
+
+
+@dataclass(frozen=True)
+class Kept:
+    """An archived session, as much of it as deciding whether to keep it takes."""
+
+    session_id: str
+    project: str
+    title: str | None
+    turns: int
+
+
 @dataclass(frozen=True)
 class Hit:
     session_id: str
@@ -157,7 +172,7 @@ class Archive:
                 continue
             session = parse_transcript(path)
             project = project_of(session.cwd)
-            if any(project == parent or project.startswith(parent.rstrip("/") + "/") for parent in exclude):
+            if _within(project, exclude):
                 report.excluded += 1
                 continue
             if len(session.turns) < self._turn_count(session.session_id):
@@ -170,6 +185,32 @@ class Archive:
             else:
                 report.added += 1
         return report
+
+    def under(self, parents: Iterable[str]) -> list[Kept]:
+        """Archived sessions belonging to one of these projects, or to a project inside one."""
+        parents = list(parents)
+        rows = self._db.execute(
+            """
+            SELECT s.session_id, s.project, s.title, (SELECT count(*) FROM turns t WHERE t.session_id = s.session_id)
+            FROM sessions s ORDER BY s.started_at, s.session_id
+            """
+        )
+        return [Kept(*row) for row in rows if _within(row[1], parents)]
+
+    def remove(self, session_ids: Iterable[str]) -> int:
+        """Delete these sessions and everything kept about them, and rewrite the file without their text."""
+        removed = 0
+        with self._db:
+            for session_id in session_ids:
+                for table in ("turns", "dreams", "digests"):
+                    self._db.execute(f"DELETE FROM {table} WHERE session_id = ?", (session_id,))
+                removed += self._db.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,)).rowcount
+        if removed:
+            # Deleted rows stay in the file, and deleted words in the search index, until both are rebuilt.
+            self._db.execute("INSERT INTO turns_fts(turns_fts) VALUES ('rebuild')")
+            self._db.commit()
+            self._db.execute("VACUUM")
+        return removed
 
     def awaiting_dream(self) -> list[Undreamt]:
         """Sessions with turns the dream has not read, oldest first."""

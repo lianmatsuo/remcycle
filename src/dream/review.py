@@ -14,12 +14,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from dream.claims import Status
-from dream.extract import Runner
+from dream.extract import ExtractionError, Runner
 from dream.memory import SIDE, MemoryStore
 from dream.reconcile import Review
 
 _BODY_LIMIT = 1_500
 _BUDGET = 120_000
+_PER_PASS = 20
+"""Entries per model call, so that one call stays inside the runner's time limit."""
 
 
 @dataclass
@@ -29,12 +31,14 @@ class ReviewReport:
     unsupported: int = 0
     """Findings dropped because a passage they quoted was not in the memory."""
     cost_usd: float = 0.0
+    failures: list[str] = field(default_factory=list)
+    """Why each pass the model could not complete failed. Its entries are reviewed next time."""
     problems: list[str] = field(default_factory=list)
     """Why the gate refused the reviewed copy. Empty when it was accepted."""
     merged: bool = False
 
 
-def review(store: MemoryStore, runner: Runner, *, budget: int = _BUDGET) -> ReviewReport:
+def review(store: MemoryStore, runner: Runner, *, budget: int = _BUDGET, per_pass: int = _PER_PASS) -> ReviewReport:
     """Review every entry in use that has not been reviewed as it now reads."""
     folder = store.folder
     seen_file = folder / SIDE / "reviewed.json"
@@ -48,13 +52,17 @@ def review(store: MemoryStore, runner: Runner, *, budget: int = _BUDGET) -> Revi
     report = ReviewReport()
     asked = store.probes()
 
-    for batch in _passes(fresh, texts, budget):
-        reply = runner(_prompt(batch, texts, store.topics()))
+    for batch in _passes(fresh, texts, budget, per_pass):
+        try:
+            reply = runner(_prompt(batch, texts, store.topics()))
+        except ExtractionError as e:
+            report.failures.append(str(e))
+            continue
         report.cost_usd += reply.cost_usd
         ops: list[Review] = []
         for note in reply.data.get("memories", ()):
             slot = note.get("slot")
-            if slot not in texts:
+            if slot not in batch:
                 continue
             if note.get("topic") and not store.topic(slot):
                 store.set_topic(slot, " ".join(str(note["topic"]).split())[:60])
@@ -67,7 +75,7 @@ def review(store: MemoryStore, runner: Runner, *, budget: int = _BUDGET) -> Revi
                     report.unsupported += 1
         for pair in reply.data.get("pairs", ()):
             a, b = pair.get("a"), pair.get("b")
-            if a not in texts or b not in texts or a == b or pair.get("kind") not in ("contradicts", "duplicates"):
+            if a not in batch or b not in batch or a == b or pair.get("kind") not in ("contradicts", "duplicates"):
                 continue
             if not (_quoted(pair.get("quote_a"), texts[a]) and _quoted(pair.get("quote_b"), texts[b])):
                 report.unsupported += 1
@@ -93,12 +101,12 @@ def _digest(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def _passes(slots: Sequence[str], texts: dict[str, str], budget: int) -> Iterator[list[str]]:
+def _passes(slots: Sequence[str], texts: dict[str, str], budget: int, per_pass: int) -> Iterator[list[str]]:
     batch: list[str] = []
     size = 0
     for slot in sorted(slots):
         length = min(len(texts[slot]), _BODY_LIMIT)
-        if batch and size + length > budget:
+        if batch and (size + length > budget or len(batch) == per_pass):
             yield batch
             batch, size = [], 0
         batch.append(slot)
