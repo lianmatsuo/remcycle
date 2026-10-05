@@ -2,6 +2,7 @@ import fcntl
 import json
 
 import dream.cli
+from dream.archive import Archive
 from dream.cli import main
 from dream.dreaming import key
 from dream.extract import Thread
@@ -38,6 +39,23 @@ def test_ingest_search_and_show_from_the_command_line(tmp_path, capsys, monkeypa
 
     assert main(["show", "--db", db, "deadbeef"]) == 1
     assert "no archived session" in capsys.readouterr().err
+
+
+def test_ingest_says_how_many_sessions_the_dream_has_not_read(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no-settings"))
+    root = tmp_path / "projects"
+    read, unread = "7f3a9c2e-1b4d-4e6f-8a90-123456789abc", "8a4b0d3f-2c5e-4f70-9ba1-23456789abcd"
+    for session_id in (read, unread):
+        put_session(root, session_id, [human("use pnpm here", 0), assistant_text("Noted.", 1)])
+    db = tmp_path / "archive.db"
+
+    assert main(["ingest", "--root", str(root), "--db", str(db)]) == 0
+    assert "2 not yet read by the dream" in capsys.readouterr().out
+
+    Archive(db).record_dream(read)
+
+    assert main(["ingest", "--root", str(root), "--db", str(db)]) == 0
+    assert "1 not yet read by the dream" in capsys.readouterr().out
 
 
 def test_a_thread_is_closed_from_the_command_line(tmp_path, capsys, monkeypatch):

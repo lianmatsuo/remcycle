@@ -146,6 +146,20 @@ test('a conversation starts unchanged when the command line cannot be reached', 
   expect(blocks).toEqual([{ name: 'currentDate', text: '2026-10-05' }])
 })
 
+test('with the command line not installed, a conversation starts unchanged and recall says so', async ($, on) => {
+  on('process.run', async () => {
+    throw new Error('failed to start: ENOENT: Executable not found in $PATH: "dream"')
+  })
+
+  on('prompt.context', async (_$, e) => ({ blocks: e.blocks }))
+
+  const { blocks } = await $.prompt.context({ blocks: [{ name: 'currentDate', text: '2026-10-05' }] })
+  const answer = await $.tool.call({ tool: 'mcp__remcycle__recall', query: 'retention' })
+
+  expect(blocks).toEqual([{ name: 'currentDate', text: '2026-10-05' }])
+  expect(answer.result).toBe('remcycle could not be reached.')
+})
+
 test('recall searches the archive with the words asked for', async ($, on) => {
   const calls = commandLine(on, { search: '2026-10-01  assistant  7f3a9c2e#1  Retention sweep\n' })
 

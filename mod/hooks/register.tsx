@@ -256,11 +256,15 @@ function parsed(out: string | null): unknown {
   }
 }
 
-/** Runs remcycle's command line and returns what it printed, or null if it failed. */
+/** Runs remcycle's command line and returns what it printed, or null if it failed or could not be started. */
 async function dream($: EngineInterface, args: string[], timeoutMs = 30_000): Promise<string | null> {
-  const ran = await $.process.run(['dream', ...args], { timeoutMs })
+  try {
+    const ran = await $.process.run(['dream', ...args], { timeoutMs })
 
-  return ran.exitCode === 0 ? ran.stdout : null
+    return ran.exitCode === 0 ? ran.stdout : null
+  } catch {
+    return null
+  }
 }
 
 /** The arguments that point a command at the project the pane shows. */

@@ -75,6 +75,7 @@ def _turn(memory: Path) -> Iterator[None]:
 def _ingest(archive: Archive, args: argparse.Namespace) -> int:
     report = archive.ingest(args.root, exclude=args.exclude)
     print(f"{report.added} added, {report.updated} updated, {report.unchanged} unchanged, {report.excluded} excluded")
+    print(f"{len(archive.awaiting_dream())} not yet read by the dream")
     if report.redacted:
         print(f"{report.redacted} secrets redacted")
     for session_id in report.kept_longer:
