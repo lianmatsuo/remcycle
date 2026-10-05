@@ -328,7 +328,7 @@ class Archive:
         `session` is a session id or any prefix of one that picks out a single session.
         """
         matches = self._db.execute(
-            "SELECT session_id FROM sessions WHERE substr(session_id, 1, length(?1)) = ?1", (session,)
+            "SELECT session_id FROM sessions WHERE substr(session_id, 1, length(:prefix)) = :prefix", {"prefix": session}
         ).fetchall()
         if not matches:
             raise LookupError(f"no archived session starts with {session!r}")
@@ -338,10 +338,10 @@ class Archive:
         rows = self._db.execute(
             """
             SELECT seq, author, kind, text, uuid, timestamp FROM turns
-            WHERE session_id = ?1 AND seq >= ?2 AND (?3 IS NULL OR seq <= ?3)
+            WHERE session_id = :session AND seq >= :first AND (:last IS NULL OR seq <= :last)
             ORDER BY seq
             """,
-            (session_id, first, last),
+            {"session": session_id, "first": first, "last": last},
         )
         return [Turn(seq, Author(author), Kind(kind), *rest) for seq, author, kind, *rest in rows]
 
