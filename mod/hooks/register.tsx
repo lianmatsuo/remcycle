@@ -637,12 +637,12 @@ export const register: Register = on => {
               <Box columnGap={1}>
                 <Button
                   key={`accept-${question.slot}`}
-                  label={question.suggests === null ? 'Retire it' : 'Take it'}
+                  label={question.suggests === null ? 'Retire the memory' : 'Take the suggestion'}
                   onPress={() => rule($, question.slot, true)}
                 />
                 <Button
                   key={`keep-${question.slot}`}
-                  label={question.suggests === null ? 'Keep it' : 'Keep mine'}
+                  label="Keep the memory"
                   onPress={() => rule($, question.slot, false)}
                 />
               </Box>

@@ -268,6 +268,8 @@ test('questions come one at a time with both sides, and a ruling is passed on', 
     expect(await ui.find({ type: 'Text', text: /^Deploys go straight to production\.$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /guessed from a session/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /The database cutover/ })).toBeUndefined()
+    expect((await ui.find({ key: 'accept-deploy-target' }))?.props.label).toBe('Take the suggestion')
+    expect((await ui.find({ key: 'keep-deploy-target' }))?.props.label).toBe('Keep the memory')
 
     await ui.press({ key: 'next' })
 
@@ -277,7 +279,8 @@ test('questions come one at a time with both sides, and a ruling is passed on', 
     expect(await ui.find({ type: 'Text', text: /^The database cutover is planned for 12 August\.$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^The cutover date has passed$/ })).toBeDefined()
     expect((await ui.find({ type: 'Text', text: /^Kept out of sessions until you rule\.$/ }))?.props.color).toBe('warning')
-    expect((await ui.find({ key: 'accept-cutover-status' }))?.props.label).toBe('Retire it')
+    expect((await ui.find({ key: 'accept-cutover-status' }))?.props.label).toBe('Retire the memory')
+    expect((await ui.find({ key: 'keep-cutover-status' }))?.props.label).toBe('Keep the memory')
     expect(await ui.find({ type: 'Text', text: /Deploys go straight to production/ })).toBeUndefined()
 
     await ui.press({ key: 'keep-cutover-status' })
