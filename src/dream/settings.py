@@ -19,6 +19,8 @@ class Settings:
     reports: Path
     model: str
     """The model the dream asks Claude Code to use for extraction."""
+    effort: str | None
+    """How hard the model should think (`low`, `medium`, `high`). None leaves it to Claude Code."""
 
 
 def load_settings(env: Mapping[str, str], home: Path) -> Settings:
@@ -43,6 +45,7 @@ def load_settings(env: Mapping[str, str], home: Path) -> Settings:
         memory=data / "memory",
         reports=data / "reports",
         model=model,
+        effort=chosen.get("effort"),
     )
 
 

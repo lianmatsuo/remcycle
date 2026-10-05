@@ -53,3 +53,13 @@ def test_the_dream_keeps_its_memory_copies_and_reports_beside_the_archive_and_as
     assert default.memory == tmp_path / ".local" / "share" / "remcycle" / "memory"
     assert default.reports == tmp_path / ".local" / "share" / "remcycle" / "reports"
     assert (default.model, chosen.model) == ("sonnet", "haiku")
+
+
+def test_how_hard_the_model_thinks_is_left_to_claude_code_unless_the_settings_say(tmp_path):
+    file = tmp_path / ".config" / "remcycle" / "config.toml"
+    file.parent.mkdir(parents=True)
+
+    default = load_settings({}, tmp_path)
+    file.write_text('effort = "low"\n')
+
+    assert (default.effort, load_settings({}, tmp_path).effort) == (None, "low")

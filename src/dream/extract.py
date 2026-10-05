@@ -40,6 +40,14 @@ class Thread:
 
 
 @dataclass(frozen=True)
+class Correction:
+    """The person corrected the assistant after it followed a memory entry."""
+
+    slot: str
+    evidence: Evidence
+
+
+@dataclass(frozen=True)
 class Rejected:
     slot: str
     statement: str
@@ -53,6 +61,7 @@ class Extraction:
     threads: tuple[Thread, ...]
     rejected: tuple[Rejected, ...]
     cost_usd: float
+    corrections: tuple[Correction, ...] = ()
 
 
 def to_json(extraction: Extraction) -> dict:
@@ -61,6 +70,7 @@ def to_json(extraction: Extraction) -> dict:
         "claims": [claim_to_json(claim) for claim in extraction.claims],
         "threads": [asdict(thread) for thread in extraction.threads],
         "rejected": [asdict(rejected) for rejected in extraction.rejected],
+        "corrections": [asdict(correction) for correction in extraction.corrections],
     }
 
 
@@ -72,6 +82,9 @@ def from_json(data: dict) -> Extraction:
         threads=tuple(Thread(**thread) for thread in data["threads"]),
         rejected=tuple(Rejected(**rejected) for rejected in data["rejected"]),
         cost_usd=0.0,
+        corrections=tuple(
+            Correction(c["slot"], Evidence(**c["evidence"])) for c in data.get("corrections", ())
+        ),
     )
 
 
@@ -96,6 +109,7 @@ def extract(
     known: Mapping[str, str],
     runner: Runner,
     open_threads: Mapping[str, str] | None = None,
+    topics: Sequence[str] = (),
     budget: int = _BUDGET,
 ) -> Extraction:
     """What the session established, as far as the model's quotes can be checked.
@@ -109,16 +123,27 @@ def extract(
     claims: list[Claim] = []
     threads: list[Thread] = []
     rejected: list[Rejected] = []
+    corrections: list[Correction] = []
     cost = 0.0
     for prose in _passes([t for t in turns if t.kind != Kind.TOOL], budget):
-        reply = runner(_prompt(prose, known, open_threads or {}))
+        reply = runner(_prompt(prose, known, open_threads or {}, topics))
         cost += reply.cost_usd
         summaries.append(str(reply.data.get("summary", "")).strip())
         for raw in reply.data.get("claims", ()):
             checked = _checked(session_id, raw, by_seq)
             (claims if isinstance(checked, Claim) else rejected).append(checked)
         threads.extend(thread for raw in reply.data.get("threads", ()) if (thread := _thread(raw)))
-    return Extraction(" ".join(s for s in summaries if s), tuple(claims), tuple(threads), tuple(rejected), cost)
+        corrections.extend(
+            found for raw in reply.data.get("corrections", ()) if (found := _correction(session_id, raw, by_seq))
+        )
+    return Extraction(
+        " ".join(s for s in summaries if s),
+        tuple(claims),
+        tuple(threads),
+        tuple(rejected),
+        cost,
+        tuple(corrections),
+    )
 
 
 def _checked(session_id: str, raw: dict, by_seq: Mapping[int, Turn]) -> Claim | Rejected:
@@ -155,6 +180,8 @@ def _checked(session_id: str, raw: dict, by_seq: Mapping[int, Turn]) -> Claim | 
         evidence=Evidence(session_id, first, last),
         said_at=cited[0].timestamp or "",
         anchor=str(raw.get("anchor") or "").strip() or None,
+        asks=str(raw.get("asks") or "").strip(),
+        topic=" ".join(str(raw.get("topic") or "").split())[:60],
     )
 
 
@@ -167,6 +194,21 @@ def _supported(stated: Provenance, quoted: Sequence[Turn], cited: Sequence[Turn]
     if stated == Provenance.ACCEPTED and not any(turn.author == Author.HUMAN for turn in cited):
         return Provenance.INFERRED
     return stated
+
+
+def _correction(session_id: str, raw: dict, by_seq: Mapping[int, Turn]) -> Correction | None:
+    """A correction the model reported, if the person really typed the words it quotes."""
+    slot = str(raw.get("slot", "")).strip().lower()
+    quote = _plain(str(raw.get("quote", "")))
+    try:
+        turn = by_seq.get(int(raw.get("turn", -1)))
+    except (ValueError, TypeError):
+        return None
+    if not _SLOT.fullmatch(slot) or turn is None or turn.author != Author.HUMAN:
+        return None
+    if len(quote) < _SHORTEST_QUOTE or quote not in _plain(turn.text):
+        return None
+    return Correction(slot, Evidence(session_id, turn.seq, turn.seq))
 
 
 def _thread(raw: dict) -> Thread | None:
@@ -201,7 +243,9 @@ def _passes(prose: Sequence[Turn], budget: int) -> Iterator[list[Turn]]:
         yield batch
 
 
-def _prompt(prose: Sequence[Turn], known: Mapping[str, str], open_threads: Mapping[str, str]) -> str:
+def _prompt(
+    prose: Sequence[Turn], known: Mapping[str, str], open_threads: Mapping[str, str], topics: Sequence[str]
+) -> str:
     def listed(items: Mapping[str, str]) -> str:
         return "\n".join(f"- {slot}: {statement}" for slot, statement in items.items()) or "(nothing yet)"
 
@@ -209,7 +253,12 @@ def _prompt(prose: Sequence[Turn], known: Mapping[str, str], open_threads: Mappi
         f"[{turn.seq}] {_SPEAKER[turn.author]}: {turn.text[:_TURN_LIMIT]}{' …[cut]' if len(turn.text) > _TURN_LIMIT else ''}"
         for turn in prose
     )
-    return _INSTRUCTIONS.format(known=listed(known), threads=listed(open_threads), session=session)
+    return _INSTRUCTIONS.format(
+        known=listed(known),
+        threads=listed(open_threads),
+        topics="\n".join(f"- {topic}" for topic in topics) or "(none yet)",
+        session=session,
+    )
 
 
 SYSTEM = (
@@ -251,15 +300,28 @@ inferred if you concluded it from what happened; observed if it comes from a sub
 - quote: a short passage copied exactly from one of those turns that supports the claim. For provenance \
 human it must be the person's own words.
 - anchor: for a fact about a file in the repository, that file's path. Otherwise empty.
+- asks: one question a later session might ask that this claim answers, in the words such a session would use.
+- topic: the area the claim belongs to, in two or three words, such as "Deploys and CI". Use one of the \
+topics under "Topics so far" when one fits.
 
 ## Threads
 
 A thread is work the session left unfinished or explicitly deferred. Give each a slot, a state (open, or \
 done if this session finished a thread listed under "Open threads"), one sentence, and the turn where it stands.
 
+## Corrections
+
+If the assistant followed an entry listed under "Already known" and the person then corrected it for \
+doing so, report it: the entry's slot, the turn where the person corrected it, and a short passage \
+copied exactly from that turn. Report nothing here if that did not happen.
+
 ## Already known
 
 {known}
+
+## Topics so far
+
+{topics}
 
 ## Open threads
 
@@ -274,7 +336,7 @@ _TEXT = {"type": "string"}
 SCHEMA = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["summary", "claims", "threads"],
+    "required": ["summary", "claims", "threads", "corrections"],
     "properties": {
         "summary": _TEXT,
         "claims": {
@@ -284,7 +346,7 @@ SCHEMA = {
                 "additionalProperties": False,
                 "required": [
                     "slot", "type", "scope", "statement", "why", "provenance",
-                    "first_turn", "last_turn", "quote", "anchor",
+                    "first_turn", "last_turn", "quote", "anchor", "asks", "topic",
                 ],  # fmt: skip
                 "properties": {
                     "slot": _TEXT,
@@ -297,7 +359,18 @@ SCHEMA = {
                     "last_turn": {"type": "integer"},
                     "quote": _TEXT,
                     "anchor": _TEXT,
+                    "asks": _TEXT,
+                    "topic": _TEXT,
                 },
+            },
+        },
+        "corrections": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["slot", "turn", "quote"],
+                "properties": {"slot": _TEXT, "turn": {"type": "integer"}, "quote": _TEXT},
             },
         },
         "threads": {
@@ -322,23 +395,36 @@ class ClaudeCode:
     """Asks the user's own Claude Code, run headless, so remcycle never handles credentials.
 
     The run loads no settings, tools or project context and writes no transcript, so it
-    cannot be mistaken for a session and archived in turn.
+    cannot be mistaken for a session and archived in turn. The answer comes back in the
+    shape of `schema`.
     """
 
-    def __init__(self, model: str = "sonnet", timeout: int = 900) -> None:
+    def __init__(
+        self,
+        model: str = "sonnet",
+        *,
+        schema: dict = SCHEMA,
+        system: str = SYSTEM,
+        effort: str | None = None,
+        timeout: int = 900,
+    ) -> None:
         self._model = model
+        self._effort = effort
+        self._schema = schema
+        self._system = system
         self._timeout = timeout
 
     def __call__(self, prompt: str) -> Reply:
         command = [
             "claude", "-p",
             "--output-format", "json",
-            "--json-schema", json.dumps(SCHEMA),
+            "--json-schema", json.dumps(self._schema),
             "--model", self._model,
-            "--system-prompt", SYSTEM,
+            "--system-prompt", self._system,
             "--tools", "",
             "--setting-sources", "",
             "--no-session-persistence",
+            *(["--effort", self._effort] if self._effort else []),
         ]  # fmt: skip
         try:
             done = subprocess.run(

@@ -6,7 +6,7 @@ what the dream has accepted whether or not it has been published.
 
 from pathlib import Path
 
-from dream.claims import Evidence, Status
+from dream.claims import Status
 from dream.dreaming import GLOBAL, key
 from dream.memory import MemoryStore
 
@@ -33,7 +33,7 @@ def status(memory_root: Path, project: str, now: str) -> dict:
                 "slot": slot,
                 "statement": entry.statement,
                 "from": entry.provenance,
-                "evidence": _command(entry.evidence[0]),
+                "evidence": entry.evidence[0].command,
             }
             for slot, entry in entries.items()
             if entry.provenance and entry.evidence and entry.status == Status.ACTIVE
@@ -41,17 +41,13 @@ def status(memory_root: Path, project: str, now: str) -> dict:
         "waiting": [
             {
                 "slot": item.slot,
-                "suggests": item.claim.statement,
-                "from": item.claim.provenance,
+                "suggests": item.claim.statement if item.claim else None,
+                "reason": item.reason,
+                "from": item.claim.provenance if item.claim else None,
                 "withheld": item.withheld,
-                "evidence": _command(item.claim.evidence),
+                "evidence": item.claim.evidence.command if item.claim else None,
             }
             for item in store.queue()
         ],
         "open_threads": list(store.threads(now).values()),
     }
-
-
-def _command(evidence: Evidence) -> str:
-    """The command that prints the turns a claim rests on."""
-    return f"dream show {evidence.session_id[:8]} --first {evidence.first_turn} --last {evidence.last_turn}"

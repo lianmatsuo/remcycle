@@ -14,9 +14,15 @@ from pathlib import Path
 
 from dream.claims import Claim, ClaimType, Entry, Evidence, Provenance, Status, claim_from_json, claim_to_json
 from dream.extract import Thread
-from dream.reconcile import Add, Confirm, Contest, Op, Question, Supersede
+from dream.reconcile import Add, Alias, Confirm, Contest, Demote, Op, Question, Review, Supersede, Withhold
 
 INDEX = "MEMORY.md"
+TOPIC_PAGE = "_topic-"
+# Claude Code loads this much of MEMORY.md at session start and silently drops the rest.
+INDEX_LINE_LIMIT = 200
+INDEX_BYTE_LIMIT = 25_000
+# Past this many entries, a session should pick a topic before it picks an entry.
+TOPICS_AFTER = 60
 SIDE = ".remcycle"
 # Claude Code's own memory types, which decide how a session treats the file.
 _BUILT_IN_TYPE = {
@@ -27,6 +33,7 @@ _BUILT_IN_TYPE = {
 }
 _FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n?(.*)\Z", re.DOTALL)
 _LINK = re.compile(r"\]\(([^)]+)\.md\)")
+_TITLE = re.compile(r"\[([^\]]+)\]")
 _HOOK_LIMIT = 150
 _THREAD_LIFE = timedelta(days=14)
 
@@ -43,27 +50,48 @@ class Past:
 
 @dataclass(frozen=True)
 class Open:
-    """A disagreement only the person can settle."""
+    """Something only the person can settle.
+
+    With a claim, the question is whether the claim should replace the entry.
+    Without one, it is whether the entry should be retired, for `reason`.
+    """
 
     slot: str
-    claim: Claim
+    claim: Claim | None
     withheld: bool
     """Whether the entry is kept out of sessions until it is settled."""
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class Found:
+    slot: str
+    statement: str
+    matched: str
+    """How the query matched: `name`, `alias` or `words`."""
 
 
 class MemoryStore:
-    def __init__(self, folder: Path) -> None:
+    def __init__(self, folder: Path, topics_after: int = TOPICS_AFTER) -> None:
         self._folder = folder
+        self._topics_after = topics_after
         self._records_file = folder / SIDE / "entries.json"
         self._queue_file = folder / SIDE / "queue.json"
         self._withheld = folder / SIDE / "withheld"
         self._threads_file = folder / SIDE / "threads.json"
         self._usage_file = folder / SIDE / "usage.json"
+        self._lines_file = folder / SIDE / "index.md"
+
+    @property
+    def folder(self) -> Path:
+        return self._folder
 
     def entries(self) -> dict[str, Entry]:
         """Every entry by slot. A slot is the memory file's name without `.md`."""
         records = self._records()
-        files = [p for p in self._folder.glob("*.md") if p.name != INDEX] + list(self._withheld.glob("*.md"))
+        files = [
+            p for p in self._folder.glob("*.md") if p.name != INDEX and not p.name.startswith(TOPIC_PAGE)
+        ] + list(self._withheld.glob("*.md"))
         return {
             path.stem: _entry(path.stem, path.read_text(), records.get(path.stem, {}))
             for path in sorted(files, key=lambda p: p.stem)
@@ -85,16 +113,39 @@ class MemoryStore:
                     replaced = _past(self.entries()[slot], claim.said_at)
                     self._write(claim)
                     self._index(claim)
-                    records[slot] = {**_record(claim), "history": [*records.get(slot, {}).get("history", []), replaced]}
+                    kept = records.get(slot, {})
+                    records[slot] = {
+                        **_record(claim),
+                        "aliases": kept.get("aliases", []),
+                        "history": [*kept.get("history", []), replaced],
+                    }
                 case Contest(slot, claim):
-                    self._withheld.mkdir(parents=True, exist_ok=True)
-                    (self._folder / f"{slot}.md").rename(self._withheld / f"{slot}.md")
-                    self._index_drop(slot)
-                    records.setdefault(slot, {})["status"] = Status.CONTESTED
+                    self._hold(slot, records, Status.CONTESTED)
                     self._ask(Open(slot, claim, withheld=True))
                 case Question(slot, claim):
                     self._ask(Open(slot, claim, withheld=False))
+                case Alias(slot, alias):
+                    records.setdefault(slot, {}).setdefault("aliases", []).append(alias)
+                case Withhold(slot, reason):
+                    self._hold(slot, records, Status.STALE)
+                    self._ask(Open(slot, None, withheld=True, reason=reason))
+                case Review(slot, reason):
+                    self._ask(Open(slot, None, withheld=False, reason=reason))
+                case Demote(slot, reason):
+                    self._index_drop(slot)
+                    records.setdefault(slot, {})["demoted"] = True
+                    self._ask(Open(slot, None, withheld=False, reason=reason))
         self._save(records)
+        self._render()  # again, now that what the operations recorded is saved
+
+    def _hold(self, slot: str, records: dict[str, dict], status: Status) -> None:
+        """Move the entry's file out of the folder sessions read, and drop its index line."""
+        self._withheld.mkdir(parents=True, exist_ok=True)
+        file = self._folder / f"{slot}.md"
+        if file.exists():
+            file.rename(self._withheld / f"{slot}.md")
+        self._index_drop(slot)
+        records.setdefault(slot, {})["status"] = status
 
     def _save(self, records: dict[str, dict]) -> None:
         self._records_file.parent.mkdir(exist_ok=True)
@@ -108,35 +159,111 @@ class MemoryStore:
 
     def ensure_indexed(self) -> None:
         """Give every entry remcycle wrote a line in the index, if it has lost its line."""
-        index = self._folder / INDEX
-        text = index.read_text() if index.exists() else ""
+        lines = self._lines()
+        present = {_slot_of(line) for line in lines}
+        records = self._records()
         missing = [
             _index_line(slot, entry.statement)
             for slot, entry in self.entries().items()
-            if slot in self._records()
+            if slot in records
+            and not records[slot].get("demoted")
             and entry.status == Status.ACTIVE
             and _always_loaded(entry.type, entry.provenance)
-            and f"]({slot}.md)" not in text
+            and slot not in present
         ]
         if missing:
-            index.write_text(text + "".join(missing))
+            self._keep(lines + missing)
+
+    def set_topic(self, slot: str, topic: str) -> None:
+        records = self._records()
+        records.setdefault(slot, {})["topic"] = topic
+        self._save(records)
+        self._render()
+
+    def topic(self, slot: str) -> str:
+        return self._records().get(slot, {}).get("topic", "")
+
+    def set_probe(self, slot: str, question: str) -> None:
+        """Record the question the entry's index line should lead a session to."""
+        records = self._records()
+        records.setdefault(slot, {})["asks"] = question
+        self._save(records)
+
+    def topics(self) -> list[str]:
+        return sorted({record["topic"] for record in self._records().values() if record.get("topic")})
+
+    def absorb(self, before: str, after: str) -> None:
+        """Take in a session's edit to the index: `before` is what was last written, `after` what is there now."""
+        known = self._lines()
+        edited = [line if line.endswith("\n") else line + "\n" for line in after.splitlines(keepends=True)]
+        if any(self._folder.glob(f"{TOPIC_PAGE}*.md")):
+            # The index lists topics. Any entry line found in it is one a session added by hand.
+            for line in edited:
+                if (slot := _slot_of(line)) and line not in before.splitlines(keepends=True):
+                    known = [existing for existing in known if _slot_of(existing) != slot] + [line]
+        else:
+            shown = {_slot_of(line) for line in before.splitlines()}
+            unshown = [line for line in known if _slot_of(line) and _slot_of(line) not in shown]
+            known = edited + unshown
+        self._keep(known)
 
     def resolve(self, slot: str, *, accept: bool) -> None:
-        """Settle every disagreement waiting on a slot: take the newest claim, or keep the entry."""
+        """Settle everything waiting on a slot.
+
+        Accepting takes the newest claim as the entry or, where the question was
+        whether to retire the entry, retires it. Declining keeps the entry as it was.
+        """
         waiting = [item for item in self.queue() if item.slot == slot]
         if not waiting:
             raise LookupError(f"nothing is waiting on {slot!r}")
+        newest = waiting[-1]
+        self._queue_save([item for item in self.queue() if item.slot != slot])
+        records = self._records()
+        if accept and newest.claim is None:
+            self._hold(slot, records, Status.RETIRED)
+            self._save(records)
+            return
         held = self._withheld / f"{slot}.md"
-        if held.exists():
-            held.rename(self._folder / f"{slot}.md")
-            records = self._records()
+        if held.exists() or records.get(slot, {}).get("demoted"):
+            if held.exists():
+                held.rename(self._folder / f"{slot}.md")
             records.setdefault(slot, {})["status"] = Status.ACTIVE
+            records[slot].pop("demoted", None)
             self._save(records)
             self._index_set(slot, self.entries()[slot].statement)
-        self._queue_save([item for item in self.queue() if item.slot != slot])
         if accept:
             # The person chose it, so it now stands on their authority.
-            self.apply([Supersede(slot, replace(waiting[-1].claim, provenance=Provenance.HUMAN))])
+            self.apply([Supersede(slot, replace(newest.claim, provenance=Provenance.HUMAN))])
+
+    def probes(self) -> dict[str, str]:
+        """For each entry in use that has one: the question its index line should lead a session to."""
+        records = self._records()
+        return {
+            slot: records[slot]["asks"]
+            for slot, entry in self.entries().items()
+            if entry.status == Status.ACTIVE and records.get(slot, {}).get("asks")
+        }
+
+    def find(self, query: str, limit: int = 5) -> list[Found]:
+        """Entries in use that match the query: by name first, then by alias, then by their words.
+
+        A name or alias matches when the query is exactly its words, in any order.
+        Otherwise an entry matches when it holds every word of the query.
+        """
+        asked = _terms(query)
+        if not asked:
+            return []
+        ranked: list[tuple[int, Found]] = []
+        for slot, entry in self.entries().items():
+            if entry.status != Status.ACTIVE:
+                continue
+            if asked == _terms(slot):
+                ranked.append((0, Found(slot, entry.statement, "name")))
+            elif any(asked == _terms(alias) for alias in entry.aliases):
+                ranked.append((1, Found(slot, entry.statement, "alias")))
+            elif asked <= _terms(f"{slot} {entry.statement}"):
+                ranked.append((2, Found(slot, entry.statement, "words")))
+        return [found for _, found in sorted(ranked, key=lambda pair: pair[0])][:limit]
 
     def note_read(self, slot: str, repository: Path, at: str) -> str | None:
         """Count a session reading the entry. Returns a warning if what it is about has gone."""
@@ -185,21 +312,41 @@ class MemoryStore:
         return json.loads(self._threads_file.read_text()) if self._threads_file.exists() else {}
 
     def fit_index(self, max_lines: int, max_bytes: int) -> list[str]:
-        """Bring the index within budget by dropping lines, least useful first. Files stay.
+        """Write the index sessions load, within budget. Returns the entries left out of it.
 
-        The first to go are memories from before remcycle that no session has read,
-        oldest first; what the person said or agreed to goes last. A line is only
-        ever dropped, never shortened or rewritten.
+        Up to the store's `topics_after` entries the index is one line per entry, and lines are left
+        out, least useful first, to stay within the budget: memories from before remcycle
+        that no session has read go first, oldest first, and what the person said or
+        agreed to goes last. Past it, the index lists topics and each topic has a page of
+        its entries' lines. A line is moved or left out, never shortened or rewritten.
         """
+        return self._render(max_lines, max_bytes)
+
+    def _render(self, max_lines: int = INDEX_LINE_LIMIT, max_bytes: int = INDEX_BYTE_LIMIT) -> list[str]:
+        lines = self._lines()
         index = self._folder / INDEX
-        if not index.exists():
+        for page in self._folder.glob(f"{TOPIC_PAGE}*.md"):
+            page.unlink()
+        if not lines and not index.exists():
             return []
         records, entries = self._records(), self.entries()
-        lines = index.read_text().splitlines(keepends=True)
+        members = [line for line in lines if _slot_of(line)]
+        topic_of = {_slot_of(line): records.get(_slot_of(line), {}).get("topic") or "" for line in members}
 
-        def slot_of(line: str) -> str | None:
-            link = _LINK.search(line)
-            return link[1] if link else None
+        if len(members) > self._topics_after and len({topic for topic in topic_of.values() if topic}) >= 2:
+            pages: dict[str, list[str]] = {}
+            for line in members:
+                pages.setdefault(topic_of[_slot_of(line)] or "Other", []).append(line)
+            listing = []
+            for topic in sorted(pages):
+                page = f"{TOPIC_PAGE}{re.sub(r'[^a-z0-9]+', '-', topic.lower()).strip('-')}.md"
+                (self._folder / page).write_text(f"# {topic}\n\n" + "".join(pages[topic]))
+                titles = ", ".join(_TITLE.search(line)[1] for line in pages[topic])
+                count = f"{len(pages[topic])} {'memory' if len(pages[topic]) == 1 else 'memories'}"
+                hook = titles if len(titles) <= _HOOK_LIMIT else titles[: _HOOK_LIMIT - 1] + "…"
+                listing.append(f"- [{topic}]({page}) — {count}: {hook}\n")
+            index.write_text("".join(line for line in lines if not _slot_of(line)) + "".join(listing))
+            return []
 
         def keep_rank(slot: str) -> tuple:
             entry = entries.get(slot)
@@ -208,14 +355,29 @@ class MemoryStore:
             return (endorsed, self.reads(slot), last_touched)
 
         shed: list[str] = []
-        candidates = sorted((slot for line in lines if (slot := slot_of(line))), key=keep_rank)
+        candidates = sorted((_slot_of(line) for line in members), key=keep_rank)
         while candidates and (len(lines) > max_lines or sum(len(line.encode()) for line in lines) > max_bytes):
             slot = candidates.pop(0)
-            lines = [line for line in lines if slot_of(line) != slot]
+            lines = [line for line in lines if _slot_of(line) != slot]
             shed.append(slot)
-        if shed:
-            index.write_text("".join(lines))
+        index.write_text("".join(lines))
         return shed
+
+    def _lines(self) -> list[str]:
+        """Every index line the store holds, in order. The index sessions load is drawn from these."""
+        source = self._lines_file if self._lines_file.exists() else self._folder / INDEX
+        if not source.exists():
+            return []
+        return [line if line.endswith("\n") else line + "\n" for line in source.read_text().splitlines(keepends=True)]
+
+    def _keep(self, lines: Sequence[str]) -> None:
+        self._lines_file.parent.mkdir(exist_ok=True)
+        self._lines_file.write_text("".join(lines))
+        self._render()
+
+    def modified(self, slot: str) -> str:
+        """When the entry was last said or written, as far as its record or its file says."""
+        return self._records().get(slot, {}).get("said_at") or self._modified(slot)
 
     def _modified(self, slot: str) -> str:
         file = self._folder / f"{slot}.md"
@@ -230,7 +392,12 @@ class MemoryStore:
         if not self._queue_file.exists():
             return []
         return [
-            Open(item["slot"], claim_from_json(item["claim"]), item["withheld"])
+            Open(
+                item["slot"],
+                claim_from_json(item["claim"]) if item["claim"] else None,
+                item["withheld"],
+                item.get("reason", ""),
+            )
             for item in json.loads(self._queue_file.read_text())
         ]
 
@@ -241,13 +408,21 @@ class MemoryStore:
 
     def _queue_save(self, waiting: Sequence[Open]) -> None:
         self._queue_file.parent.mkdir(exist_ok=True)
-        items = [{"slot": q.slot, "claim": claim_to_json(q.claim), "withheld": q.withheld} for q in waiting]
+        items = [
+            {
+                "slot": q.slot,
+                "claim": claim_to_json(q.claim) if q.claim else None,
+                "withheld": q.withheld,
+                "reason": q.reason,
+            }
+            for q in waiting
+        ]
         self._queue_file.write_text(json.dumps(items, indent=2, sort_keys=True) + "\n")
 
     def _index_drop(self, slot: str) -> None:
-        index = self._folder / INDEX
-        if index.exists():
-            index.write_text("".join(line for line in index.read_text().splitlines(keepends=True) if f"]({slot}.md)" not in line))
+        lines = self._lines()
+        if lines or (self._folder / INDEX).exists():
+            self._keep([line for line in lines if _slot_of(line) != slot])
 
     def _records(self) -> dict[str, dict]:
         return json.loads(self._records_file.read_text()) if self._records_file.exists() else {}
@@ -263,15 +438,13 @@ class MemoryStore:
 
     def _index_set(self, slot: str, statement: str) -> None:
         """Point the index at the entry: in place if the slot already has a line, else at the end."""
-        index = self._folder / INDEX
-        lines = index.read_text().splitlines(keepends=True) if index.exists() else []
-        link = f"]({slot}.md)"
+        lines = self._lines()
         line = _index_line(slot, statement)
-        if any(link in existing for existing in lines):
-            lines = [line if link in existing else existing for existing in lines]
+        if any(_slot_of(existing) == slot for existing in lines):
+            lines = [line if _slot_of(existing) == slot else existing for existing in lines]
         else:
             lines.append(line)
-        index.write_text("".join(lines))
+        self._keep(lines)
 
 
 def _entry(slot: str, text: str, record: dict) -> Entry:
@@ -286,6 +459,7 @@ def _entry(slot: str, text: str, record: dict) -> Entry:
         said_at=record.get("said_at"),
         why=record.get("why", ""),
         anchor=record.get("anchor"),
+        aliases=tuple(record.get("aliases", ())),
     )
 
 
@@ -323,6 +497,8 @@ def _record(claim: Claim) -> dict:
         "anchor": claim.anchor,
         "evidence": [_pointer(claim.evidence)],
         "history": [],
+        "asks": claim.asks,
+        "topic": claim.topic,
     }
 
 
@@ -340,7 +516,6 @@ def _pointer(evidence: Evidence) -> list:
 
 
 def _memory_file(claim: Claim) -> str:
-    e = claim.evidence
     parts = [
         "---\n"
         f"name: {claim.slot}\n"
@@ -352,8 +527,19 @@ def _memory_file(claim: Claim) -> str:
     ]
     if claim.why:
         parts.append(f"**Why:** {claim.why}\n")
-    parts.append(f"Evidence: `dream show {e.session_id[:8]} --first {e.first_turn} --last {e.last_turn}`\n")
+    parts.append(f"Evidence: `{claim.evidence.command}`\n")
     return "\n".join(parts)
+
+
+def _slot_of(line: str) -> str | None:
+    """The entry an index line points at, or None for a heading, a topic line or anything else."""
+    link = _LINK.search(line)
+    return link[1] if link and not link[1].startswith(TOPIC_PAGE) else None
+
+
+def _terms(text: str) -> frozenset[str]:
+    """The words of a query or an entry, lowercased, with plural endings dropped."""
+    return frozenset(word.removesuffix("s") for word in re.findall(r"[a-z0-9]+", text.lower()))
 
 
 def _always_loaded(kind: ClaimType | None, provenance: Provenance | None) -> bool:

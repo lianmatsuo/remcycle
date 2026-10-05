@@ -35,14 +35,16 @@ export const register: Register = on => {
     await $.tool.register({
       name: 'recall',
       description:
-        'Search the archive of past Claude Code sessions for what was said or decided. ' +
-        'Give `query` to get the best-matching turns, each labelled session#turn. ' +
+        'Search memory and the archive of past Claude Code sessions for what was said or decided. ' +
+        'Give `query` to get matching memories and the best-matching turns, each labelled session#turn. ' +
+        'Give `also` with other ways of asking the same thing to widen the search. ' +
         'Give `session` with `first` and `last` to read those turns back word for word. ' +
         'Searches this project unless `everywhere` is true.',
       inputSchema: {
         type: 'object',
         properties: {
           query: { type: 'string', description: 'Words to search for' },
+          also: { type: 'array', items: { type: 'string' }, description: 'Other phrasings of the same question' },
           everywhere: { type: 'boolean', description: 'Search every project' },
           reports: { type: 'boolean', description: "Also search subagents' final reports" },
           session: { type: 'string', description: 'A session id, or the start of one, to read back' },
@@ -106,6 +108,7 @@ export const register: Register = on => {
             'search',
             ...(asked.everywhere === true ? ['--all-projects'] : []),
             ...(asked.reports === true ? ['--reports'] : []),
+            ...(Array.isArray(asked.also) ? asked.also.flatMap(phrasing => ['--also', String(phrasing)]) : []),
             '--',
             ...String(asked.query ?? '')
               .split(/\s+/)
@@ -166,12 +169,21 @@ export const register: Register = on => {
           <Box flexDirection="column">
             <Text>
               {item.slot}
-              {item.withheld ? ' (withheld)' : ''}: a session suggests ({item.from}) {item.suggests}
+              {item.withheld ? ' (withheld)' : ''}:{' '}
+              {item.suggests === null ? item.reason : `a session suggests (${item.from}) ${item.suggests}`}
             </Text>
-            <Text dimColor>{item.evidence}</Text>
+            {item.evidence !== null && <Text dimColor>{item.evidence}</Text>}
             <Box>
-              <Button key={`accept-${item.slot}`} label="Take it" onPress={() => rule($, item.slot, true)} />
-              <Button key={`keep-${item.slot}`} label="Keep mine" onPress={() => rule($, item.slot, false)} />
+              <Button
+                key={`accept-${item.slot}`}
+                label={item.suggests === null ? 'Retire it' : 'Take it'}
+                onPress={() => rule($, item.slot, true)}
+              />
+              <Button
+                key={`keep-${item.slot}`}
+                label={item.suggests === null ? 'Keep it' : 'Keep mine'}
+                onPress={() => rule($, item.slot, false)}
+              />
             </Box>
           </Box>
         ))}

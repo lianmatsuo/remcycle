@@ -25,13 +25,13 @@ class Mirror:
         self.staging = folder.with_name(folder.name + ".staging")
         self._synced_file = folder / SIDE / "synced.json"
 
-    def sync(self, live: Path | None) -> None:
+    def sync(self, live: Path | None, project: str | None = None) -> None:
         """Take in what sessions wrote to live memory since the last sync. Their version wins.
 
         A memory a session edited or deleted loses what remcycle recorded about it,
         because that record described text which is no longer there.
         """
-        self.folder.mkdir(parents=True, exist_ok=True)
+        (self.folder / SIDE).mkdir(parents=True, exist_ok=True)
         if not (self.folder / ".git").exists():
             self._git("init", "-q")
         synced = self._synced()
@@ -39,15 +39,20 @@ class Mirror:
         current = {path.name: path for path in live.glob("*.md")} if live and live.is_dir() else {}
         for name, path in current.items():
             if synced.get(name) != _digest(path):
-                shutil.copyfile(path, self.folder / name)
-                synced[name] = _digest(path)
-                if name != INDEX:
+                mine = self.folder / name
+                if name == INDEX:
+                    store.absorb(mine.read_text() if mine.exists() else "", path.read_text())
+                else:
+                    shutil.copyfile(path, mine)
                     store.forget(path.stem)
+                synced[name] = _digest(path)
         for name in set(synced) - set(current):
             (self.folder / name).unlink(missing_ok=True)
             store.forget(Path(name).stem)
             del synced[name]
         store.ensure_indexed()
+        if project:
+            (self.folder / SIDE / "project.json").write_text(json.dumps({"project": project}) + "\n")
         self._save_synced(synced)
         self._commit("sync from live memory")
 

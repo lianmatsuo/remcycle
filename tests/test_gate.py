@@ -3,7 +3,8 @@ import shutil
 import pytest
 
 from dream.claims import Claim, ClaimType, Evidence, Provenance, Scope
-from dream.gate import check
+from dream.extract import Reply
+from dream.gate import check, judge_with
 from dream.memory import MemoryStore
 from dream.reconcile import Add, Contest, Supersede
 
@@ -81,3 +82,49 @@ def test_an_index_claude_code_would_cut_off_or_that_points_nowhere_blocks_the_me
         "MEMORY.md has 203 lines; Claude Code loads the first 200",
         "MEMORY.md points at gone.md, which is not a memory in this folder",
     ]
+
+
+def asked(slot, statement, question):
+    return Claim(**{**claim(slot, statement).__dict__, "asks": question})
+
+
+def picks_by_keyword(index, questions):
+    """A stand-in for the model: opens package-manager.md only while the index still mentions pnpm."""
+    return ["package-manager.md" if "pnpm" in index else "none" for _ in questions]
+
+
+def test_an_index_that_stops_leading_to_the_right_memory_blocks_the_merge(live, tmp_path):
+    MemoryStore(live).apply([Add(asked("package-manager", "Use pnpm for JS projects.", "Which package manager do we use?"))])
+    staged = shutil.copytree(live, tmp_path / "staged")
+    index = staged / "MEMORY.md"
+    index.write_text(index.read_text().replace("Use pnpm for JS projects.", "tooling"))
+
+    assert check(live, staged, judge=picks_by_keyword) == [
+        "the index leads to the right memory for 0 of 1 questions, down from 1"
+    ]
+
+
+def test_the_model_is_not_asked_when_the_index_did_not_change(live, staged):
+    def must_not_be_asked(index, questions):
+        raise AssertionError("the judge was asked")
+
+    MemoryStore(live).apply([Add(asked("package-manager", "Use pnpm for JS projects.", "Which package manager?"))])
+
+    assert check(live, live, judge=must_not_be_asked) == []
+
+
+def test_a_judge_backed_by_the_model_matches_its_answers_to_the_questions_by_number():
+    prompts = []
+
+    def runner(prompt):
+        prompts.append(prompt)
+        return Reply({"answers": [{"question": 2, "file": "ci-runner.md"}, {"question": 1, "file": "package-manager.md"}]})
+
+    judge = judge_with(runner)
+
+    assert judge("- [Package manager](package-manager.md) — pnpm\n", ["Which package manager?", "Where does CI run?", "Who?"]) == [
+        "package-manager.md",
+        "ci-runner.md",
+        "",
+    ]
+    assert "1. Which package manager?" in prompts[0] and "- [Package manager](package-manager.md) — pnpm" in prompts[0]

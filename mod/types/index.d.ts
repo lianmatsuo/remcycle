@@ -1,6 +1,13 @@
 export type Learned = { slot: string; statement: string; from: string; evidence: string }
 
-export type Waiting = { slot: string; suggests: string; from: string; withheld: boolean; evidence: string }
+export type Waiting = {
+  slot: string
+  suggests: string | null
+  reason: string
+  from: string | null
+  withheld: boolean
+  evidence: string | null
+}
 
 export type Status = {
   project: string

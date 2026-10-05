@@ -17,9 +17,18 @@ const STATUS = {
     {
       slot: 'deploy-target',
       suggests: 'Deploys go straight to production.',
+      reason: '',
       from: 'inferred',
       withheld: false,
       evidence: 'dream show 7f3a9c2e --first 1 --last 1',
+    },
+    {
+      slot: 'cutover-status',
+      suggests: null,
+      reason: 'it looks dated: the cutover date has passed',
+      from: null,
+      withheld: false,
+      evidence: null,
     },
   ],
   open_threads: ['CI cache for pnpm is not set up.'],
@@ -98,10 +107,17 @@ test('a conversation starts unchanged when the command line cannot be reached', 
 test('recall searches the archive with the words asked for', async ($, on) => {
   const calls = commandLine(on, { search: '2026-10-01  assistant  7f3a9c2e#1  Retention sweep\n' })
 
-  const answer = await $.tool.call({ tool: 'mcp__remcycle__recall', query: 'retention  sweep', everywhere: true })
+  const answer = await $.tool.call({
+    tool: 'mcp__remcycle__recall',
+    query: 'retention  sweep',
+    also: ['old transcripts deleted'],
+    everywhere: true,
+  })
 
   expect(answer.result).toBe('2026-10-01  assistant  7f3a9c2e#1  Retention sweep\n')
-  expect(calls).toEqual([['dream', 'search', '--all-projects', '--', 'retention', 'sweep']])
+  expect(calls).toEqual([
+    ['dream', 'search', '--all-projects', '--also', 'old transcripts deleted', '--', 'retention', 'sweep'],
+  ])
 })
 
 test('recall reads turns back when given a session', async ($, on) => {
@@ -149,9 +165,14 @@ test('the pane shows what waits for a ruling and passes the ruling on', async ($
     expect(await ui.find({ type: 'Text', text: /deploy-target: a session suggests \(inferred\) Deploys go straight/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /CI cache for pnpm is not set up/ })).toBeDefined()
 
+    expect(await ui.find({ type: 'Text', text: /cutover-status: it looks dated: the cutover date has passed/ })).toBeDefined()
+    expect((await ui.find({ key: 'accept-cutover-status' }))?.props.label).toBe('Retire it')
+
     await ui.press({ key: 'accept-deploy-target' })
+    await ui.press({ key: 'keep-cutover-status' })
 
     expect(calls).toContainEqual(['dream', 'resolve', 'deploy-target', '--accept'])
+    expect(calls).toContainEqual(['dream', 'resolve', 'cutover-status', '--keep'])
     await ui.unmount()
   }
 })

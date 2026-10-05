@@ -3,13 +3,15 @@
 import json
 import re
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Self
 
 from dream.redact import redact
 from dream.transcript import Author, Kind, Session, Turn, parse_transcript
+
+_RRF_K = 60
 
 RULES_VERSION = 1
 """Raise this whenever ingest would derive something different from the same transcript
@@ -211,7 +213,7 @@ class Archive:
 
     def search(
         self,
-        query: str,
+        query: str | Sequence[str],
         *,
         project: str | None,
         since: str | None = None,
@@ -222,18 +224,37 @@ class Archive:
     ) -> list[Hit]:
         """Best-matching turns first. `project=None` searches every project.
 
-        The query is read as plain words. Turns holding all of them win; if none
-        does, turns holding any of them are returned instead. `since` and `until`
-        are inclusive YYYY-MM-DD dates, compared against the turn's UTC timestamp.
-        Tool calls outnumber prose and would crowd it out, so they are searched
-        only when `tools` is set. Subagent reports are what an agent observed, not
-        what was said in the session, and are searched only when `reports` is set.
+        A query is read as plain words. Turns holding all of them win; if none
+        does, turns holding any of them are returned instead. Several queries are
+        several phrasings of one question: each is searched and the rankings are
+        fused, so a turn that more phrasings find ranks higher. Among turns that
+        match alike, what the person typed comes before what the assistant wrote.
+
+        `since` and `until` are inclusive YYYY-MM-DD dates, compared against the
+        turn's UTC timestamp. Tool calls outnumber prose and would crowd it out, so
+        they are searched only when `tools` is set. Subagent reports are what an
+        agent observed, not what was said in the session, and are searched only
+        when `reports` is set.
         """
-        terms = [f'"{term}"' for term in re.findall(r"\w+", query)]
-        if not terms:
-            return []
-        scope = {"project": project, "since": since, "until": until, "tools": tools, "reports": reports, "limit": limit}
-        return self._matching(" ".join(terms), scope, True) or self._matching(" OR ".join(terms), scope, False)
+        phrasings = [query] if isinstance(query, str) else list(query)
+        scope = {"project": project, "since": since, "until": until, "tools": tools, "reports": reports}
+        fused: dict[tuple[str, int], float] = {}
+        best: dict[tuple[str, int], Hit] = {}
+        for phrasing in phrasings:
+            terms = [f'"{term}"' for term in re.findall(r"\w+", phrasing)]
+            if not terms:
+                continue
+            pool = {**scope, "limit": max(limit * 3, 30)}
+            hits = self._matching(" ".join(terms), pool, True) or self._matching(" OR ".join(terms), pool, False)
+            for rank, hit in enumerate(hits):
+                key = (hit.session_id, hit.seq)
+                # Reciprocal rank fusion: each phrasing votes by where it placed the turn.
+                fused[key] = fused.get(key, 0.0) + 1.0 / (_RRF_K + rank)
+                if key not in best or (hit.matched_all and not best[key].matched_all):
+                    best[key] = hit
+        if any(hit.matched_all for hit in best.values()):
+            best = {key: hit for key, hit in best.items() if hit.matched_all}
+        return [best[key] for key in sorted(best, key=lambda key: -fused[key])][:limit]
 
     def _matching(self, match: str, scope: dict[str, str | int | None], matched_all: bool) -> list[Hit]:
         rows = self._db.execute(
@@ -250,7 +271,8 @@ class Archive:
               AND (:until IS NULL OR substr(t.timestamp, 1, 10) <= :until)
               AND (:tools OR t.kind != 'tool')
               AND (:reports OR t.kind != 'report')
-            ORDER BY rank
+            -- bm25 is negative and lower is better, so a weight above 1 moves a turn up.
+            ORDER BY bm25(turns_fts) * CASE t.author WHEN 'human' THEN 1.3 WHEN 'assistant' THEN 1.0 ELSE 0.8 END
             LIMIT :limit
             """,
             {"match": match, **scope},

@@ -53,7 +53,39 @@ class Reject:
     reason: str
 
 
-Op = Add | Confirm | Supersede | Contest | Question | Reject
+@dataclass(frozen=True)
+class Alias:
+    """A session used another name for the slot. Later claims under that name belong here."""
+
+    slot: str
+    alias: str
+
+
+@dataclass(frozen=True)
+class Withhold:
+    """Keep the entry out of sessions until the person rules, for a reason that is not a claim."""
+
+    slot: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class Review:
+    """Ask the person whether the entry should be retired. It stays in use meanwhile."""
+
+    slot: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class Demote:
+    """Take the entry out of the index, leave it on file, and ask the person about it."""
+
+    slot: str
+    reason: str
+
+
+Op = Add | Confirm | Supersede | Contest | Question | Reject | Withhold | Review | Alias | Demote
 
 _AUTHORITY = {Provenance.HUMAN: 3, Provenance.ACCEPTED: 2, Provenance.INFERRED: 1, Provenance.OBSERVED: 0}
 # A new entry has to rest on what the person said or agreed to, unless it is a lesson.
@@ -67,12 +99,38 @@ def reconcile(entries: Mapping[str, Entry], claims: Iterable[Claim]) -> list[Op]
     state = dict(entries)
     ops: list[Op] = []
     for claim in sorted(claims, key=lambda c: c.said_at):
-        op = _decide(state.get(claim.slot), claim)
-        if op:
+        slot, renamed = _home(state, claim)
+        claim = replace(claim, slot=slot)
+        decided = _decide(state.get(slot), claim)
+        for op in ([Alias(slot, renamed)] if renamed else []) + ([decided] if decided else []):
             ops.append(op)
             if not isinstance(op, Reject):
-                state[claim.slot] = after(state.get(claim.slot), op)
+                state[slot] = after(state.get(slot), op)
     return ops
+
+
+def _home(entries: Mapping[str, Entry], claim: Claim) -> tuple[str, str | None]:
+    """The slot a claim belongs under, and the claim's own name for it if that is a new alias.
+
+    The model names slots, and it does not always name the same thing the same way.
+    A claim belongs to an existing entry if it uses the entry's slot or an alias,
+    spells either differently, or says what the entry already says.
+    """
+    if claim.slot in entries:
+        return claim.slot, None
+    name = _name(claim.slot)
+    for slot, entry in entries.items():
+        if claim.slot in entry.aliases or name in {_name(slot), *map(_name, entry.aliases)}:
+            return slot, None
+    for slot, entry in entries.items():
+        if entry.status == Status.ACTIVE and _same_statement(entry.statement, claim.statement):
+            return slot, claim.slot
+    return claim.slot, None
+
+
+def _name(slot: str) -> frozenset[str]:
+    """A slot name without its punctuation or word order."""
+    return frozenset(re.split(r"[-_]+", slot.lower()))
 
 
 def _decide(entry: Entry | None, claim: Claim) -> Op | None:
@@ -108,9 +166,12 @@ def after(entry: Entry | None, op: Op) -> Entry:
                 said_at=claim.said_at,
                 why=claim.why,
                 anchor=claim.anchor,
+                aliases=entry.aliases if entry else (),
             )
         case Confirm(_, evidence, _):
             return replace(entry, evidence=(*entry.evidence, evidence))
+        case Alias(_, alias):
+            return replace(entry, aliases=(*entry.aliases, alias))
         case Contest():
             return replace(entry, status=Status.CONTESTED)
         case Question():

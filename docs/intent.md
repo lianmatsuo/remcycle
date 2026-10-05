@@ -110,6 +110,10 @@ Each is dated 2026-10-05 unless noted.
 
 **A memory from before remcycle is never replaced without the person's ruling.** Rejected: letting a claim of equal authority supersede it, which the first version did. Such a memory can hold several statements, and a claim replaces it with one. On the first full run a broad note on product naming was replaced by a narrow point about one sign-in screen. A differing claim on such a slot is now always put to the person.
 
+**The index is drawn from one list of lines.** Rejected: editing `MEMORY.md` in place, which the first version did. The store keeps every entry's line in its own file and writes the index sessions load from it: flat within budget, or by topic past a threshold. A line left out for budget comes back when there is room, and a session's own edits to the index are merged in at the next sync.
+
+**Findings about existing memories go to the person, never straight into memory.** The review may be wrong about what is dated, and a memory can hold more than the review saw in it. gbrain's contradiction probe takes the same stance: it reports and the operator decides.
+
 **A lesson nobody endorsed stays out of the index.** It is the model's conclusion, the kind of context that costs more than it helps when always loaded. It stays on file for recall.
 
 **One archive database, scoped at query time.** Rejected for now: a database per project. Search defaults to the current project and crossing projects takes an explicit flag. The file lives at `~/.local/share/remcycle/archive.db`, outside `~/.claude`, which Claude Code manages and sweeps.
@@ -138,13 +142,21 @@ Two faults showed up and were fixed: the supersession described above, and five 
 4. **Pane and rulings.** Built: `/remcycle`.
 5. **MCP sources.** Not built.
 
-Not built, though the design calls for it:
+Built after the first full run, from the unbuilt list and from a comparison with gbrain:
 
-- The gate's fourth check: whether a model given only the index still picks the right entry. It needs probe questions written from real sessions.
-- A two-level topic index. The index is one line per entry, kept within budget by dropping lines.
-- Pruning beyond the index: checking repo facts against the repository during the dream, and demoting entries after a harmful signal. Read counts are recorded; nothing acts on them yet beyond the index budget.
-- A pass over memories from before remcycle. They are taken in as they are and change only when a new claim lands on their slot.
+- **Aliases.** A claim finds its entry by slot, alias, another spelling of either, or the same statement. This is gbrain's alias lookup applied to the dream's weakest step, the model naming slots.
+- **Recall.** `dream search` matches memory entries by name, alias and words, ranks what the person typed first, and fuses several phrasings of one question by reciprocal rank.
+- **The gate's fourth check.** Each entry has a probe question, written by the model with the claim or in the review. The staged index is refused if it leads a model to the right memory less often than the current one.
+- **A two-level index.** Past 60 entries the index lists topics, each with a page of entry lines. The store keeps every line in one list and draws whichever index fits, so lines are moved and never rewritten.
+- **Pruning.** Facts about files that have gone are withheld. An entry the person corrected the assistant for following leaves the index. Both wait for a ruling.
+- **The review.** `dream review` reads existing memories, gives each a topic and a probe, and questions the dated, the repeated and the contradictory, on quoted evidence only.
+
+Still not built:
+
+- Vector search and a reranker. Both need an embedding model or a service, so they would be an optional backend.
 - Measuring extraction against sessions labelled by hand.
+- A command to remove sessions archived before their project was excluded.
+- MCP sources as extra evidence.
 
 ## Open
 

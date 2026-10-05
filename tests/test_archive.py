@@ -369,3 +369,32 @@ def test_a_session_waits_for_its_dream_until_one_is_recorded_and_again_once_it_g
     put_session(root, "s-1", [*rows, assistant_text("Pinned python:3.13.9-slim.", 1)], cwd="/work/shop")
     archive.ingest(root)
     assert [s.session_id for s in archive.awaiting_dream()] == ["s-1"]
+
+
+def test_what_the_person_typed_ranks_above_the_assistants_words_when_both_match_alike(root, archive):
+    put_session(
+        root,
+        "s-1",
+        [assistant_text("use pnpm for the workspace", 0), human("use pnpm for the workspace", 1)],
+    )
+    archive.ingest(root)
+
+    assert found(archive.search("pnpm workspace", project=None)) == [("s-1", 1), ("s-1", 0)]
+
+
+def test_several_phrasings_are_searched_together_and_a_turn_more_of_them_find_ranks_higher(root, archive):
+    put_session(
+        root,
+        "s-1",
+        [
+            assistant_text("The retention sweep deletes transcripts.", 0),
+            assistant_text("Old sessions get cleaned up after thirty days by the retention sweep.", 1),
+            assistant_text("Nothing to do with it.", 2),
+        ],
+    )
+    archive.ingest(root)
+
+    hits = archive.search(["retention sweep", "sessions cleaned up", "zebra crossing"], project=None)
+
+    assert found(hits) == [("s-1", 1), ("s-1", 0)]
+    assert all(hit.matched_all for hit in hits)

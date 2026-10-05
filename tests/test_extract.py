@@ -1,7 +1,7 @@
 import pytest
 
 from dream.claims import ClaimType, Evidence, Provenance, Scope
-from dream.extract import ExtractionError, Reply, extract
+from dream.extract import Correction, ExtractionError, Reply, extract
 from dream.transcript import Author, Kind, Turn
 
 SESSION = "7f3a9c2e-1b4d-4e6f-8a90-123456789abc"
@@ -31,13 +31,14 @@ def raw_claim(**overrides):
     }
 
 
-def answering(*claims, threads=(), summary="Set up the JS workspace."):
+def answering(*claims, threads=(), corrections=(), summary="Set up the JS workspace."):
     """A stand-in for the model: records the prompt it was given and returns a fixed answer."""
     prompts = []
 
     def runner(prompt):
         prompts.append(prompt)
-        return Reply({"summary": summary, "claims": list(claims), "threads": list(threads)}, cost_usd=0.01)
+        answer = {"summary": summary, "claims": list(claims), "threads": list(threads), "corrections": list(corrections)}
+        return Reply(answer, cost_usd=0.01)
 
     runner.prompts = prompts
     return runner
@@ -120,3 +121,12 @@ def test_a_model_that_cannot_be_asked_is_an_error_for_that_session():
 
     with pytest.raises(ExtractionError, match="not signed in"):
         extract(SESSION, TURNS, known={}, runner=unreachable)
+
+
+def test_a_correction_counts_against_an_entry_only_when_the_person_typed_it():
+    typed = {"slot": "package-manager", "turn": 3, "quote": "no, always use pnpm for JS projects"}
+    not_typed = {"slot": "deploy-target", "turn": 1, "quote": "I'll use npm unless you prefer something else"}
+
+    extraction = extract(SESSION, TURNS, known={}, runner=answering(corrections=[typed, not_typed]))
+
+    assert extraction.corrections == (Correction("package-manager", Evidence(SESSION, 3, 3)),)

@@ -8,8 +8,10 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 
 from dream.archive import NO_PROJECT, Archive, project_of
-from dream.dreaming import dream, key, render
+from dream import review
+from dream.dreaming import GLOBAL, dream, key, render, review_project
 from dream.extract import ClaudeCode
+from dream.gate import JUDGE_SCHEMA, JUDGE_SYSTEM, judge_with
 from dream.memory import MemoryStore
 from dream.session import context, status
 from dream.settings import Settings, load_settings
@@ -47,8 +49,16 @@ def _search(archive: Archive, args: argparse.Namespace) -> int:
         project = NO_PROJECT
     else:
         project = project_of(str((args.project or Path.cwd()).resolve()))
+    asked = " ".join(args.words)
+    remembered = (
+        []
+        if project is None
+        else [found for copy in (project, GLOBAL) for found in MemoryStore(args.memory / key(copy)).find(asked)]
+    )
+    for found in remembered:
+        print(f"memory      {found.slot} ({found.matched})  {found.statement}")
     hits = archive.search(
-        " ".join(args.words),
+        [asked, *args.also],
         project=project,
         since=args.since,
         until=args.until,
@@ -56,9 +66,9 @@ def _search(archive: Archive, args: argparse.Namespace) -> int:
         reports=args.reports,
         limit=args.limit,
     )
-    if not hits:
+    if not hits and not remembered:
         print("no matches" if project is None else f"no matches in {project} (--all-projects searches everywhere)")
-    elif not hits[0].matched_all:
+    elif hits and not hits[0].matched_all:
         print("no turn holds every word; these hold some of them")
     for hit in hits:
         day = (hit.timestamp or "")[:10]
@@ -80,7 +90,8 @@ def _run(archive: Archive, args: argparse.Namespace) -> int:
         archive,
         memory_root=args.memory,
         live_root=args.root,
-        runner=ClaudeCode(args.model),
+        runner=ClaudeCode(args.model, effort=args.effort),
+        judge=judge_with(ClaudeCode(args.model, schema=JUDGE_SCHEMA, system=JUDGE_SYSTEM, effort=args.effort)),
         publish=args.publish,
         limit=args.limit,
         progress=lambda line: print(line, flush=True),
@@ -93,6 +104,22 @@ def _run(archive: Archive, args: argparse.Namespace) -> int:
     return 1 if report.failures else 0
 
 
+def _review(archive: Archive, args: argparse.Namespace) -> int:
+    project = _project(args)
+    report = review_project(
+        project,
+        memory_root=args.memory,
+        live_root=args.root,
+        runner=ClaudeCode(args.model, schema=review.SCHEMA, system=review.SYSTEM, effort=args.effort),
+        judge=judge_with(ClaudeCode(args.model, schema=JUDGE_SCHEMA, system=JUDGE_SYSTEM, effort=args.effort)),
+    )
+    print(f"{project}: {report.reviewed} memories reviewed, ${report.cost_usd:.2f} of model use")
+    print(f"{report.questions} questions for you (see `dream queue`), {report.unsupported} findings dropped")
+    for problem in report.problems:
+        print(f"not accepted: {problem}")
+    return 0 if report.merged else 1
+
+
 def _queue(archive: Archive, args: argparse.Namespace) -> int:
     folders = sorted(path for path in args.memory.iterdir() if path.is_dir()) if args.memory.is_dir() else []
     waiting = [(folder.name, item) for folder in folders for item in MemoryStore(folder).queue()]
@@ -101,9 +128,11 @@ def _queue(archive: Archive, args: argparse.Namespace) -> int:
     for folder, item in waiting:
         state = "withheld" if item.withheld else "still in use"
         print(f"{folder}  {item.slot}  ({state})")
+        if item.claim is None:
+            print(f"    retire it? {item.reason}")
+            continue
         print(f"    a session suggests ({item.claim.provenance}): {item.claim.statement}")
-        e = item.claim.evidence
-        print(f"    dream show {e.session_id[:8]} --first {e.first_turn} --last {e.last_turn}")
+        print(f"    {item.claim.evidence.command}")
     return 0
 
 
@@ -119,7 +148,7 @@ def _status(archive: Archive, args: argparse.Namespace) -> int:
 
 def _resolve(archive: Archive, args: argparse.Namespace) -> int:
     MemoryStore(args.memory / key(_project(args))).resolve(args.slot, accept=args.accept)
-    print(f"{args.slot}: {'took the new claim' if args.accept else 'kept the existing entry'}")
+    print(f"{args.slot}: {'accepted' if args.accept else 'kept the existing entry'}")
     return 0
 
 
@@ -146,7 +175,7 @@ def _day(value: str) -> str:
 
 def _parser(settings: Settings) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dream", description="Archive of Claude Code sessions.")
-    parser.set_defaults(exclude=settings.exclude)
+    parser.set_defaults(exclude=settings.exclude, effort=settings.effort)
     commands = parser.add_subparsers(required=True)
 
     def command(name: str, run, help: str) -> argparse.ArgumentParser:
@@ -162,6 +191,10 @@ def _parser(settings: Settings) -> argparse.ArgumentParser:
 
     search = command("search", _search, "find turns, best match first")
     search.add_argument("words", nargs="+")
+    search.add_argument(
+        "--also", action="append", default=[], metavar="PHRASING", help="another way of asking the same thing"
+    )
+    search.add_argument("--memory", type=Path, default=settings.memory, help=argparse.SUPPRESS)
     scope = search.add_mutually_exclusive_group()
     scope.add_argument("--project", type=Path, help="project folder to search (default: this repository)")
     scope.add_argument("--all-projects", action="store_true", help="search every project")
@@ -182,6 +215,12 @@ def _parser(settings: Settings) -> argparse.ArgumentParser:
         "--publish", action="store_true", help="write accepted memory to the folders Claude Code loads"
     )
 
+    reviewing = command("review", _review, "review the memories this project already has")
+    reviewing.add_argument("--project", type=Path, help="project folder (default: this repository)")
+    reviewing.add_argument("--root", type=Path, default=settings.transcripts, help=argparse.SUPPRESS)
+    reviewing.add_argument("--memory", type=Path, default=settings.memory, help=argparse.SUPPRESS)
+    reviewing.add_argument("--model", default=settings.model, help="model for the review (default: %(default)s)")
+
     queue = command("queue", _queue, "list disagreements waiting for your ruling")
     queue.add_argument("--memory", type=Path, default=settings.memory, help=argparse.SUPPRESS)
 
@@ -196,7 +235,7 @@ def _parser(settings: Settings) -> argparse.ArgumentParser:
     resolve = command("resolve", _resolve, "rule on a disagreement listed by `dream queue`")
     resolve.add_argument("slot")
     ruling = resolve.add_mutually_exclusive_group(required=True)
-    ruling.add_argument("--accept", action="store_true", help="take the new claim")
+    ruling.add_argument("--accept", action="store_true", help="take the new claim, or retire the entry if that was the question")
     ruling.add_argument("--keep", dest="accept", action="store_false", help="keep the existing entry")
     resolve.add_argument("--project", type=Path, help="project folder (default: this repository)")
     resolve.add_argument("--memory", type=Path, default=settings.memory, help=argparse.SUPPRESS)

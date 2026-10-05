@@ -3,9 +3,12 @@ import pytest
 import dream.dreaming
 from dream.archive import Archive
 from dream.dreaming import dream as run_dream
+from dream.dreaming import review_project
 from dream.session import context, status
 from dream.extract import ExtractionError, Reply
+from dream.claims import Status
 from dream.memory import MemoryStore
+from dream.reconcile import Withhold
 from support import assistant_text, human, put_session
 
 PROJECT = "/work/shop"
@@ -157,7 +160,7 @@ def test_a_session_the_model_could_not_read_stays_unread_and_the_rest_carry_on(a
 
 def test_memory_the_gate_refuses_is_not_accepted_and_its_sessions_stay_unread(archive, claude, tmp_path, monkeypatch):
     pnpm_session(claude)
-    monkeypatch.setattr(dream.dreaming, "check", lambda live, staged: ["MEMORY.md has 203 lines"])
+    monkeypatch.setattr(dream.dreaming, "check", lambda live, staged, judge: ["MEMORY.md has 203 lines"])
 
     report = dreamt(archive, claude, tmp_path, Model())
 
@@ -207,7 +210,7 @@ def test_a_session_the_model_has_already_read_is_not_sent_again_when_its_memory_
     pnpm_session(claude)
     model = Model()
     with monkeypatch.context() as patched:
-        patched.setattr(dream.dreaming, "check", lambda live, staged: ["MEMORY.md has 203 lines"])
+        patched.setattr(dream.dreaming, "check", lambda live, staged, judge: ["MEMORY.md has 203 lines"])
         dreamt(archive, claude, tmp_path, model)
 
     report = dreamt(archive, claude, tmp_path, model)
@@ -256,6 +259,98 @@ def test_status_lists_what_the_dream_holds_for_a_project_and_what_waits_on_the_p
         {"slot": "package-manager", "statement": "Use pnpm for JS projects.", "from": "human", "evidence": "dream show s-pnpm --first 2 --last 2"}
     ]
     assert state["waiting"] == [
-        {"slot": "deploy-target", "suggests": "Deploys go straight to production.", "from": "inferred",
+        {"slot": "deploy-target", "suggests": "Deploys go straight to production.", "reason": "", "from": "inferred",
          "withheld": False, "evidence": "dream show s-pnpm --first 1 --last 1"}
     ]
+
+
+def test_a_fact_about_a_file_that_has_gone_is_withheld_by_the_next_dream_even_with_no_new_sessions(
+    archive, claude, tmp_path
+):
+    repo = tmp_path / "shop"
+    (repo / "infra").mkdir(parents=True)
+    (repo / "infra" / "deploy.sh").write_text("#!/bin/sh\n")
+    put_session(claude, "s-fact", [human("deploys always run through infra/deploy.sh, never by hand", 0)], cwd=str(repo))
+    fact = {**PNPM, "slot": "deploy-script", "type": "fact", "statement": "Deploys run through infra/deploy.sh.",
+            "first_turn": 0, "last_turn": 0, "quote": "deploys always run through infra/deploy.sh", "anchor": "infra/deploy.sh"}
+
+    class KnowsTheScript(Model):
+        def __call__(self, prompt):
+            reply = super().__call__(prompt)
+            return Reply({**reply.data, "claims": [fact]}, reply.cost_usd)
+
+    dreamt(archive, claude, tmp_path, KnowsTheScript())
+    copy = MemoryStore(tmp_path / "memory" / dream.dreaming.key(str(repo)))
+    assert copy.entries()["deploy-script"].status == Status.ACTIVE
+
+    (repo / "infra" / "deploy.sh").unlink()
+    report = dreamt(archive, claude, tmp_path, KnowsTheScript())
+
+    assert copy.entries()["deploy-script"].status == Status.STALE
+    assert [item.reason for item in copy.queue()] == ["infra/deploy.sh, which it is about, is no longer in the repository"]
+    assert report.projects[0].count(Withhold) == 1
+
+
+def test_an_entry_the_person_corrected_the_assistant_for_following_is_demoted_and_put_to_them(
+    archive, claude, tmp_path
+):
+    put_session(claude, "s-corrected", [human("why did you deploy to staging first? stop doing that", 0)], cwd=PROJECT)
+
+    class SawACorrection(Model):
+        def __call__(self, prompt):
+            reply = super().__call__(prompt)
+            correction = {"slot": "deploy-target", "turn": 0, "quote": "why did you deploy to staging first"}
+            return Reply({**reply.data, "corrections": [correction]}, reply.cost_usd)
+
+    dreamt(archive, claude, tmp_path, SawACorrection())
+
+    copy = tmp_path / "memory" / "-work-shop"
+    assert (copy / "deploy-target.md").exists()
+    assert (copy / "MEMORY.md").read_text() == ""
+    assert [item.reason for item in MemoryStore(copy).queue()] == [
+        "the person corrected the assistant after it followed this: dream show s-correc --first 0 --last 0"
+    ]
+
+
+def test_the_dream_puts_its_index_change_to_the_judge_before_accepting_it(archive, claude, tmp_path):
+    asked = []
+
+    def judge(index, questions):
+        asked.append(list(questions))
+        return ["none" for _ in questions]  # never finds anything, before or after: no regression
+
+    class WithProbe(Model):
+        def __call__(self, prompt):
+            reply = super().__call__(prompt)
+            session = prompt.split("## Session")[1]
+            claims = [{**PNPM, "asks": "Which package manager do we use?"}] if "always use pnpm" in session else []
+            if "self-hosted" in session:
+                claims = [{**PNPM, "slot": "ci-runner", "statement": "CI is self-hosted.", "first_turn": 0,
+                           "last_turn": 0, "quote": "our CI is self-hosted, remember that", "asks": "Where does CI run?"}]
+            return Reply({**reply.data, "claims": claims}, reply.cost_usd)
+
+    pnpm_session(claude)
+    dreamt(archive, claude, tmp_path, WithProbe(), judge=judge)
+    put_session(claude, "s-ci", [human("our CI is self-hosted, remember that", 0)], cwd=PROJECT)
+    report = dreamt(archive, claude, tmp_path, WithProbe(), judge=judge)
+
+    assert asked == [["Which package manager do we use?"], ["Which package manager do we use?"]]
+    assert report.projects[0].merged is True
+
+
+def test_reviewing_a_project_works_on_its_copy_and_leaves_live_memory_alone(claude, tmp_path):
+    live = claude / "-work-shop" / "memory"
+    live_before = {p.name: p.read_bytes() for p in live.iterdir()}
+
+    def reviewer(prompt):
+        note = {"slot": "deploy-target", "topic": "Deploys", "asks": "Where do deploys go first?",
+                "dated": True, "quote": "staging cluster first", "reason": "production deploys are direct now"}
+        return Reply({"memories": [note], "pairs": []}, cost_usd=0.03)
+
+    report = review_project(PROJECT, memory_root=tmp_path / "memory", live_root=claude, runner=reviewer)
+
+    copy = MemoryStore(tmp_path / "memory" / "-work-shop")
+    assert (report.reviewed, report.questions, report.merged) == (1, 1, True)
+    assert (copy.topics(), copy.probes()) == (["Deploys"], {"deploy-target": "Where do deploys go first?"})
+    assert [item.reason for item in copy.queue()] == ["it looks dated: production deploys are direct now"]
+    assert {p.name: p.read_bytes() for p in live.iterdir()} == live_before

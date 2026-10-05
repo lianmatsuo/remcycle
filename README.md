@@ -18,7 +18,7 @@ Reads the session transcripts under `~/.claude/projects` into `~/.local/share/re
 uv run dream search retention sweep
 ```
 
-Best-matching turns first, from the current repository's sessions only. Each hit is labelled `session#turn`.
+Matching memories first, found by name, alias or words, then the best-matching turns from the current repository's sessions. Each turn is labelled `session#turn`. What you typed ranks above what Claude wrote.
 
 | Option | Effect |
 |---|---|
@@ -26,6 +26,7 @@ Best-matching turns first, from the current repository's sessions only. Each hit
 | `--project DIR` | Search another project |
 | `--no-project` | Search sessions started without a folder |
 | `--since`, `--until` | Limit to dates, as `YYYY-MM-DD` |
+| `--also "PHRASING"` | Another way of asking the same thing; repeatable. Turns that more phrasings find rank higher |
 | `--tools` | Include tool calls (files touched, commands run) |
 | `--reports` | Include subagents' final reports |
 
@@ -50,14 +51,24 @@ The model is used for one step only: reading a session and proposing claims, eac
 - A new entry needs your words or your agreement behind it, unless it is a lesson. A lesson nobody endorsed is kept on file but left out of the index every session loads.
 - The same statement heard again adds evidence. A different one replaces the entry if it has at least the same authority and is newer. A weaker one is put to you instead.
 - A memory written before remcycle is never replaced without your ruling. A claim that differs from it is put to you.
+- A claim lands on the entry it is about even when the model names it differently: by another spelling, a known alias, or because it says what the entry already says.
+- A fact about a file is withheld once that file is gone from the repository, and an entry you corrected Claude for following leaves the index. Both wait for your ruling.
 
-The dream works on its own copy of each project's memory under `~/.local/share/remcycle/memory/`, staged and checked before it is accepted. The memory Claude Code loads is not touched unless you pass `--publish`, and publishing is refused if that memory changed while the dream ran.
+The dream works on its own copy of each project's memory under `~/.local/share/remcycle/memory/`, staged and checked before it is accepted. One of the checks asks the model: given only the index, would you still open the right memory for each entry's probe question? A change that makes the index worse at that is refused.
+
+Up to 60 entries the index is one line per entry. Past that it lists topics, and each topic has a page of its entries' lines. Lines are moved between the two, never rewritten. The memory Claude Code loads is not touched unless you pass `--publish`, and publishing is refused if that memory changed while the dream ran.
 
 ```bash
 uv run dream queue
 ```
 
-Lists disagreements waiting for you. Settle one with `dream resolve SLOT --accept` to take the new claim or `--keep` to keep the entry.
+Lists what is waiting for you. Settle one with `dream resolve SLOT --accept` or `--keep`. Accepting takes the new claim, or retires the entry where that was the question. A retired entry leaves sessions but stays on file.
+
+```bash
+uv run dream review
+```
+
+Reads the memories this project already has, which the dream otherwise touches only when a session says something about them. It gives each a topic and a probe question, and puts to you any that look dated, repeat each other or disagree, each backed by words quoted from the memories themselves. It changes and removes nothing. On the development machine, reviewing 19 memories cost $2.28 at API prices with Sonnet, so try `effort = "low"` or `model = "haiku"` in the settings file before a large folder.
 
 The model step runs through your own Claude Code, headless (`claude -p`), with no tools, no settings and no transcript. It uses your plan's usage: on the development machine one long session cost about $0.58 at API prices with Sonnet. Choose the model with `model = "haiku"` in the settings file or `--model`.
 
@@ -66,10 +77,10 @@ The model step runs through your own Claude Code, headless (`claude -p`), with n
 `mod/` is a Claude Code mod (function hooks, early access). Once loaded it:
 
 - gives each new conversation what you have said applies to all your work, and what earlier sessions in the project left open;
-- gives Claude a `recall` tool that searches the archive and reads turns back;
+- gives Claude a `recall` tool that searches memory and the archive, takes several phrasings at once, and reads turns back;
 - brings the archive up to date when a session ends;
 - warns Claude when it reads a memory about a file that no longer exists;
-- adds `/remcycle`, a pane showing what the dream holds for the project and what waits for your ruling, with buttons to rule.
+- adds `/remcycle`, a pane showing what the dream holds for the project and what waits for your ruling, with buttons to take a claim, keep an entry or retire one.
 
 It calls the `dream` command, so that has to be on your `PATH`:
 
@@ -103,7 +114,11 @@ The archive is one local SQLite file and ingest sends nothing anywhere. The drea
 
 ```toml
 exclude = ["~/work/private-client"]
+model = "sonnet"
+effort = "low"
 ```
+
+`model` and `effort` apply to every model step. Leave `effort` out to use Claude Code's default.
 
 Locations follow the environment: `CLAUDE_CONFIG_DIR` for Claude Code's files, `XDG_DATA_HOME` for the archive and `XDG_CONFIG_HOME` for the settings file.
 

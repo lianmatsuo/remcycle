@@ -1,5 +1,7 @@
+from dataclasses import replace
+
 from dream.claims import Claim, ClaimType, Entry, Evidence, Provenance, Scope, Status
-from dream.reconcile import Add, Confirm, Contest, Question, Reject, Supersede, reconcile
+from dream.reconcile import Add, Alias, Confirm, Contest, Question, Reject, Supersede, reconcile
 
 
 def claim(slot, statement, *, by=Provenance.HUMAN, type=ClaimType.PREFERENCE, at="2026-10-02T09:00:00Z", turns=(3, 4)):
@@ -124,3 +126,24 @@ def test_only_what_the_person_said_or_a_lesson_can_start_a_new_entry():
     )
 
     assert reconcile({}, [guess, lesson]) == [Reject(guess, "nothing the person said supports it"), Add(lesson)]
+
+
+def test_a_claim_filed_under_another_spelling_of_a_slot_lands_on_the_existing_entry():
+    existing = entry("package_manager", "Use pnpm for JS projects.")
+    respelled = claim("package-manager", "Use pnpm for JS projects.")
+
+    assert reconcile(known(existing), [respelled]) == [
+        Confirm("package_manager", Evidence("session-b", 3, 4), "2026-10-02T09:00:00Z")
+    ]
+
+
+def test_a_claim_that_repeats_an_entry_under_a_new_name_confirms_it_and_the_name_becomes_an_alias():
+    existing = entry("package-manager", "Use pnpm for JS projects.")
+    renamed = claim("js-tooling-choice", "Use pnpm for JS projects.")
+    later = claim("js-tooling-choice", "Use bun for JS projects.", at="2026-10-03T09:00:00Z")
+
+    assert reconcile(known(existing), [renamed, later]) == [
+        Alias("package-manager", "js-tooling-choice"),
+        Confirm("package-manager", Evidence("session-b", 3, 4), "2026-10-02T09:00:00Z"),
+        Supersede("package-manager", replace(later, slot="package-manager")),
+    ]

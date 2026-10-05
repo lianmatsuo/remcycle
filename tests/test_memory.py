@@ -3,7 +3,7 @@ import pytest
 from dream.claims import Claim, ClaimType, Evidence, Provenance, Scope, Status
 from dream.extract import Thread
 from dream.memory import MemoryStore
-from dream.reconcile import Add, Confirm, Contest, Question, Supersede
+from dream.reconcile import Add, Alias, Confirm, Contest, Demote, Question, Review, Supersede, Withhold
 
 LEGACY_FILE = """---
 name: deploy-target
@@ -226,3 +226,125 @@ def test_an_index_over_its_budget_sheds_the_oldest_unread_legacy_lines_and_keeps
         "- [Note 0](note-0.md) — n0\n- [Package manager](package-manager.md) — Use pnpm for JS projects.\n"
     )
     assert sorted(p.name for p in folder.glob("note-*.md")) == ["note-0.md", "note-1.md", "note-2.md"]
+
+
+def test_an_entry_withheld_for_a_reason_waits_for_the_person_and_returns_if_they_keep_it(folder):
+    store = MemoryStore(folder)
+    before = (folder / "deploy_target.md").read_bytes()
+
+    store.apply([Withhold("deploy_target", "infra/deploy.sh, which it is about, no longer exists")])
+
+    assert not (folder / "deploy_target.md").exists()
+    assert store.entries()["deploy_target"].status == Status.STALE
+    assert [(item.slot, item.claim, item.withheld, item.reason) for item in store.queue()] == [
+        ("deploy_target", None, True, "infra/deploy.sh, which it is about, no longer exists")
+    ]
+
+    store.resolve("deploy_target", accept=False)
+
+    assert (folder / "deploy_target.md").read_bytes() == before
+    assert (store.entries()["deploy_target"].status, store.queue()) == (Status.ACTIVE, [])
+
+
+def test_agreeing_with_a_review_retires_the_entry_from_sessions_without_destroying_it(folder):
+    store = MemoryStore(folder)
+    before = (folder / "deploy_target.md").read_bytes()
+
+    store.apply([Review("deploy_target", "it describes a migration that finished in August")])
+    assert (folder / "deploy_target.md").exists()
+
+    store.resolve("deploy_target", accept=True)
+
+    assert not (folder / "deploy_target.md").exists()
+    assert (folder / "MEMORY.md").read_text() == ""
+    assert store.entries()["deploy_target"].status == Status.RETIRED
+    assert (folder / ".remcycle" / "withheld" / "deploy_target.md").read_bytes() == before
+    assert store.queue() == []
+
+
+def test_an_entry_is_found_by_its_name_an_alias_or_its_words_in_that_order(folder):
+    store = MemoryStore(folder)
+    store.apply(
+        [
+            Add(claim("package-manager", "Use pnpm for JS projects.")),
+            Alias("package-manager", "js-tooling-choice"),
+            Add(claim("ci-runner", "The package manager cache lives on the self-hosted CI runner.")),
+        ]
+    )
+
+    def found(query):
+        return [(hit.slot, hit.matched) for hit in store.find(query)]
+
+    assert found("package manager") == [("package-manager", "name"), ("ci-runner", "words")]
+    assert found("JS tooling choice") == [("package-manager", "alias")]
+    assert found("pnpm projects") == [("package-manager", "words")]
+    assert found("staging cluster") == [("deploy_target", "words")]
+    assert found("kubernetes") == []
+
+
+def test_a_demoted_entry_leaves_the_index_but_stays_on_file_until_the_person_rules(folder):
+    store = MemoryStore(folder)
+
+    store.apply([Demote("deploy_target", "a session was corrected after relying on it")])
+    store.ensure_indexed()
+
+    assert (folder / "deploy_target.md").exists()
+    assert (folder / "MEMORY.md").read_text() == ""
+    assert [(item.slot, item.withheld, item.reason) for item in store.queue()] == [
+        ("deploy_target", False, "a session was corrected after relying on it")
+    ]
+
+    store.resolve("deploy_target", accept=False)
+
+    assert "](deploy_target.md)" in (folder / "MEMORY.md").read_text()
+
+
+def topical(slot, statement, topic):
+    return Claim(**{**claim(slot, statement).__dict__, "topic": topic})
+
+
+@pytest.fixture
+def busy(folder):
+    """A store with more entries than a session should have to pick from at once."""
+    store = MemoryStore(folder, topics_after=3)
+    store.apply(
+        [
+            Add(topical("package-manager", "Use pnpm for JS projects.", "Tooling")),
+            Add(topical("formatter", "Format with ruff.", "Tooling")),
+            Add(topical("ci-runner", "CI is self-hosted.", "Deploys and CI")),
+        ]
+    )
+    store.set_topic("deploy_target", "Deploys and CI")
+    return store
+
+
+def test_past_a_threshold_the_index_lists_topics_and_each_topic_page_holds_its_lines_unchanged(folder, busy):
+    busy.fit_index(max_lines=190, max_bytes=23_000)
+
+    assert (folder / "MEMORY.md").read_text() == (
+        "- [Deploys and CI](_topic-deploys-and-ci.md) — 2 memories: Deploy target, Ci runner\n"
+        "- [Tooling](_topic-tooling.md) — 2 memories: Package manager, Formatter\n"
+    )
+    assert (folder / "_topic-deploys-and-ci.md").read_text() == (
+        "# Deploys and CI\n\n" + LEGACY_INDEX + "- [Ci runner](ci-runner.md) — CI is self-hosted.\n"
+    )
+    assert sorted(busy.entries()) == ["ci-runner", "deploy_target", "formatter", "package-manager"]
+
+
+def test_once_the_index_is_by_topic_a_new_entry_goes_onto_its_topics_page(folder, busy):
+    busy.fit_index(max_lines=190, max_bytes=23_000)
+
+    busy.apply([Add(topical("linter", "Lint with ruff too.", "Tooling"))])
+
+    assert "- [Linter](linter.md) — Lint with ruff too.\n" in (folder / "_topic-tooling.md").read_text()
+    assert "3 memories: Package manager, Formatter, Linter" in (folder / "MEMORY.md").read_text()
+
+
+def test_a_line_a_session_adds_to_the_topic_index_is_kept_as_that_entrys_line(folder, busy):
+    busy.fit_index(max_lines=190, max_bytes=23_000)
+    before = (folder / "MEMORY.md").read_text()
+
+    busy.absorb(before, before + "- [Release notes](release_notes.md) — written by hand each Friday\n")
+
+    assert "- [Release notes](release_notes.md) — written by hand each Friday\n" in (folder / "_topic-other.md").read_text()
+    assert "[Other](_topic-other.md) — 1 memory: Release notes" in (folder / "MEMORY.md").read_text()

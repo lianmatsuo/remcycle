@@ -29,6 +29,10 @@ class Status(StrEnum):
     ACTIVE = "active"
     CONTESTED = "contested"
     """Withheld from sessions until a person rules on a disagreement."""
+    STALE = "stale"
+    """Withheld because what it is about could not be found, until a person rules."""
+    RETIRED = "retired"
+    """Taken out of sessions on the person's ruling. Kept on file."""
 
 
 @dataclass(frozen=True)
@@ -38,6 +42,11 @@ class Evidence:
     session_id: str
     first_turn: int
     last_turn: int
+
+    @property
+    def command(self) -> str:
+        """The command that prints these turns."""
+        return f"dream show {self.session_id[:8]} --first {self.first_turn} --last {self.last_turn}"
 
 
 @dataclass(frozen=True)
@@ -53,6 +62,10 @@ class Claim:
     said_at: str
     anchor: str | None = None
     """For a fact about the repository: the path it can be checked against."""
+    asks: str = ""
+    """A question a later session might have that this claim answers. The gate asks it of the index."""
+    topic: str = ""
+    """The area the claim belongs to. A long index is grouped by topic."""
 
 
 @dataclass(frozen=True)
@@ -69,6 +82,8 @@ class Entry:
     said_at: str | None = None
     why: str = ""
     anchor: str | None = None
+    aliases: tuple[str, ...] = ()
+    """Other names sessions have used for this slot."""
 
 
 def claim_to_json(claim: Claim) -> dict:

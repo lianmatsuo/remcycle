@@ -5,8 +5,9 @@ Each project's changes are made in a staging copy and accepted into remcycle's o
 copy only when the gate finds nothing wrong.
 """
 
+import json
 import re
-from collections import defaultdict
+import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -15,10 +16,25 @@ from pathlib import Path
 from dream.archive import Archive, Undreamt
 from dream.claims import Claim, Provenance, Scope, Status
 from dream.extract import ExtractionError, Rejected, Runner, extract, from_json, to_json
-from dream.gate import INDEX_BYTE_LIMIT, INDEX_LINE_LIMIT, check
+from dream.gate import Judge, check
 from dream.memory import MemoryStore
+from dream.memory import INDEX_BYTE_LIMIT, INDEX_LINE_LIMIT, SIDE
 from dream.mirror import LiveChanged, Mirror
-from dream.reconcile import Add, Confirm, Contest, Op, Question, Reject, Supersede, reconcile
+from dream.review import ReviewReport, review
+from dream.reconcile import (
+    Add,
+    Alias,
+    Confirm,
+    Contest,
+    Demote,
+    Op,
+    Question,
+    Reject,
+    Review,
+    Supersede,
+    Withhold,
+    reconcile,
+)
 
 GLOBAL = "(global)"
 # Room left in the index for what sessions add during the day.
@@ -65,25 +81,24 @@ def dream(
     publish: bool = False,
     limit: int | None = None,
     now: str | None = None,
+    judge: Judge | None = None,
     progress: Callable[[str], None] = lambda line: None,
 ) -> DreamReport:
     """Read up to `limit` unread sessions and bring each project's memory up to date."""
     now = now or datetime.now(UTC).isoformat()
     report = DreamReport()
-    waiting = archive.awaiting_dream()[:limit]
-    by_project: dict[str, list[Undreamt]] = defaultdict(list)
-    for session in waiting:
-        by_project[session.project].append(session)
+    work: dict[str, list[Undreamt]] = {project: [] for project in _known(memory_root)}
+    for session in archive.awaiting_dream()[:limit]:
+        work.setdefault(session.project, []).append(session)
 
     global_claims: list[Claim] = []
-    global_sessions: list[str] = []
     universal = Mirror(memory_root / key(GLOBAL))
     known_everywhere = _active(MemoryStore(universal.folder)) if universal.folder.exists() else {}
 
-    for project, sessions in by_project.items():
+    for project, sessions in work.items():
         mirror = Mirror(memory_root / key(project))
         live = live_root / key(project) / "memory"
-        mirror.sync(live)
+        mirror.sync(live, project)
         store = MemoryStore(mirror.stage())
         outcome = ProjectReport(project)
         read: list[str] = []
@@ -97,6 +112,7 @@ def dream(
                     archive.show(session.session_id),
                     known={**known_everywhere, **_active(store)},
                     open_threads=store.threads(now),
+                    topics=store.topics(),
                     runner=runner,
                 )
             except ExtractionError as e:
@@ -110,16 +126,25 @@ def dream(
             outcome.unsupported.extend(extraction.rejected)
             ours, everyone = _routed(extraction.claims)
             global_claims.extend(everyone)
-            ops = reconcile(store.entries(), ours)
+            ops: list[Op] = reconcile(store.entries(), ours)
+            ops += [
+                Demote(c.slot, f"the person corrected the assistant after it followed this: {c.evidence.command}")
+                for c in extraction.corrections
+                if c.slot in _active(store)
+            ]
             store.apply(ops)
             outcome.ops.extend(ops)
             read.append(session.session_id)
 
+        gone = _gone(store, project)
+        store.apply(gone)
+        outcome.ops.extend(gone)
         outcome.unindexed = store.fit_index(INDEX_LINE_LIMIT - _HEADROOM_LINES, INDEX_BYTE_LIMIT - _HEADROOM_BYTES)
-        if _settle(mirror, outcome, f"dream: {len(read)} sessions"):
+        if not (read or outcome.ops or outcome.unindexed):
+            continue
+        if _settle(mirror, outcome, f"dream: {len(read)} sessions", judge):
             for session_id in read:
                 archive.record_dream(session_id)
-            global_sessions.extend(read)
             if publish:
                 try:
                     mirror.publish(live)
@@ -134,18 +159,66 @@ def dream(
         store = MemoryStore(universal.stage())
         outcome = ProjectReport(GLOBAL, ops=reconcile(store.entries(), global_claims))
         store.apply(outcome.ops)
-        _settle(universal, outcome, "dream: global")
+        _settle(universal, outcome, "dream: global", judge)
         report.projects.append(outcome)
     return report
 
 
-def _settle(mirror: Mirror, outcome: ProjectReport, message: str) -> bool:
+def review_project(
+    project: str, *, memory_root: Path, live_root: Path, runner: Runner, judge: Judge | None = None
+) -> ReviewReport:
+    """Review the memories one project already has, in its copy, behind the same gate as the dream."""
+    mirror = Mirror(memory_root / key(project))
+    mirror.sync(live_root / key(project) / "memory", project)
+    store = MemoryStore(mirror.stage())
+    report = review(store, runner)
+    store.fit_index(INDEX_LINE_LIMIT - _HEADROOM_LINES, INDEX_BYTE_LIMIT - _HEADROOM_BYTES)
+    report.problems = check(mirror.folder, mirror.staging, judge)
+    report.merged = not report.problems
+    if report.merged:
+        mirror.accept(f"review: {report.reviewed} memories")
+    return report
+
+
+def _settle(mirror: Mirror, outcome: ProjectReport, message: str, judge: Judge | None) -> bool:
     """Accept the staged memory if the gate allows it."""
-    outcome.problems = check(mirror.folder, mirror.staging)
+    outcome.problems = check(mirror.folder, mirror.staging, judge)
     outcome.merged = not outcome.problems
     if outcome.merged:
         mirror.accept(message)
     return outcome.merged
+
+
+def _known(memory_root: Path) -> list[str]:
+    """Projects the dream already keeps a copy of memory for."""
+    noted = sorted(memory_root.glob(f"*/{SIDE}/project.json")) if memory_root.is_dir() else []
+    return [json.loads(file.read_text())["project"] for file in noted]
+
+
+def _gone(store: MemoryStore, project: str) -> list[Op]:
+    """Withhold each fact whose file is no longer in the project's repository."""
+    root = Path(project)
+    if not root.is_dir():
+        return []
+    return [
+        Withhold(slot, f"{entry.anchor}, which it is about, is no longer in the repository")
+        for slot, entry in store.entries().items()
+        if entry.status == Status.ACTIVE and entry.anchor and not _in_repository(root, entry.anchor)
+    ]
+
+
+def _in_repository(root: Path, anchor: str) -> bool:
+    """Whether the path is in the working tree or in the commit that is checked out."""
+    path = (root / anchor).resolve()
+    if not path.is_relative_to(root.resolve()):
+        return True  # not a path inside the repository, so nothing here can say it is gone
+    if path.exists():
+        return True
+    try:
+        seen = subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"HEAD:{anchor}"], capture_output=True)
+    except OSError:
+        return False
+    return seen.returncode == 0
 
 
 def _routed(claims: tuple[Claim, ...]) -> tuple[list[Claim], list[Claim]]:
@@ -186,8 +259,8 @@ def render(report: DreamReport) -> str:
             (project.count(Add), "added"),
             (project.count(Confirm), "confirmed"),
             (project.count(Supersede), "superseded"),
-            (project.count(Contest), "withheld pending your ruling"),
-            (project.count(Question), "questions for you"),
+            (project.count(Contest) + project.count(Withhold), "withheld pending your ruling"),
+            (project.count(Question) + project.count(Review) + project.count(Demote), "questions for you"),
             (project.count(Reject) + len(project.unsupported), "rejected"),
         ]
         lines.append(", ".join(f"{n} {label}" for n, label in counts if n) or "No changes.")
@@ -204,6 +277,14 @@ def render(report: DreamReport) -> str:
                     lines.append(f"- Question on `{slot}`: a session suggests: {claim.statement}")
                 case Reject(claim, reason):
                     lines.append(f"- Rejected `{claim.slot}`: {reason}: {claim.statement}")
+                case Withhold(slot, reason):
+                    lines.append(f"- Withheld `{slot}`: {reason}")
+                case Demote(slot, reason):
+                    lines.append(f"- Left the index, `{slot}`: {reason}")
+                case Review(slot, reason):
+                    lines.append(f"- Question on `{slot}`: {reason}")
+                case Alias(slot, alias):
+                    lines.append(f"- `{slot}` is also called `{alias}`")
         if project.unindexed:
             lines.append(
                 f"- {len(project.unindexed)} entries left the index to keep it within what Claude Code loads "
