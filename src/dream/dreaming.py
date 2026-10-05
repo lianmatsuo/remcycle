@@ -290,9 +290,28 @@ def _active(store: MemoryStore) -> dict[str, str]:
     return {slot: entry.statement for slot, entry in store.entries().items() if entry.status == Status.ACTIVE}
 
 
+_KEY_LIMIT = 200
+
+
 def key(project: str) -> str:
-    """The folder name Claude Code gives a project: its path with everything but letters and digits dashed."""
-    return re.sub(r"[^A-Za-z0-9]", "-", project)
+    """The folder name Claude Code gives a project: its path with everything but letters and digits dashed.
+
+    Past 200 characters Claude Code keeps the first 200 and adds a short hash of the whole path.
+    """
+    dashed = re.sub(r"[^A-Za-z0-9]", "-", project)
+    if len(dashed) <= _KEY_LIMIT:
+        return dashed
+    encoded = project.encode("utf-16-le")
+    hashed = 0
+    for at in range(0, len(encoded), 2):
+        hashed = (hashed * 31 + int.from_bytes(encoded[at : at + 2], "little")) & 0xFFFFFFFF
+    if hashed & 0x80000000:
+        hashed = (1 << 32) - hashed
+    digits = ""
+    while hashed:
+        hashed, digit = divmod(hashed, 36)
+        digits = "0123456789abcdefghijklmnopqrstuvwxyz"[digit] + digits
+    return f"{dashed[:_KEY_LIMIT]}-{digits or '0'}"
 
 
 def render(report: DreamReport) -> str:

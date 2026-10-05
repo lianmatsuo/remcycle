@@ -517,3 +517,19 @@ def test_a_review_keeps_one_line_per_entry_when_the_index_by_topic_leads_to_fewe
     assert not copy.by_topic()
     assert (tmp_path / "memory" / "-work-shop" / "MEMORY.md").read_text() == (live / "MEMORY.md").read_text()
     assert (copy.topics(), len(copy.probes())) == (["Deploys", "Tooling"], 61)
+
+
+def test_a_long_project_path_gets_the_folder_name_claude_code_gives_it():
+    # A real pair: a path whose name passes 200 characters, and the folder Claude Code 2.1.286 made for it.
+    path = (
+        "/private/tmp/claude-501/-Users-lianmatsuo-Library-Application-Support-Claude-scratch-workspaces-"
+        "590b047b-f325-4cce-a330-ec051a044ab0-7a286646-c536-4dfc-9ec3-ce4088c53e19-scratch-2026-10-04-cf87c2/"
+        "035a4214-4468-41e2-b0bb-a78cf3ccc5c7/scratchpad/drill/shop"
+    )
+
+    assert dream.dreaming.key(path) == (
+        "-private-tmp-claude-501--Users-lianmatsuo-Library-Application-Support-Claude-scratch-workspaces-"
+        "590b047b-f325-4cce-a330-ec051a044ab0-7a286646-c536-4dfc-9ec3-ce4088c53e19-scratch-2026-10-04-cf87c2-"
+        "035a-oowy1q"
+    )
+    assert dream.dreaming.key("/work/shop") == "-work-shop"
