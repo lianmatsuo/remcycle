@@ -83,13 +83,15 @@ def test_claims_from_one_run_are_applied_in_the_order_they_were_said():
     assert reconcile({}, [later, earlier]) == [Add(earlier), Supersede("package-manager", later)]
 
 
-def test_a_memory_from_before_provenance_was_kept_yields_to_the_person_but_not_to_a_guess():
+def test_a_memory_from_before_provenance_was_kept_is_never_replaced_without_the_persons_ruling():
     legacy = Entry(slot="deploy-target", statement="Deploys go to the staging cluster first.")
     stated = claim("deploy-target", "Deploys go straight to production.", by=Provenance.HUMAN, type=ClaimType.DECISION)
-    guessed = claim("deploy-target", "Deploys go straight to production.", by=Provenance.INFERRED, type=ClaimType.DECISION)
+    same = claim("deploy-target", "Deploys go to the staging cluster first.", by=Provenance.HUMAN)
 
-    assert reconcile(known(legacy), [stated]) == [Supersede("deploy-target", stated)]
-    assert reconcile(known(legacy), [guessed]) == [Question("deploy-target", guessed)]
+    assert reconcile(known(legacy), [stated]) == [Question("deploy-target", stated)]
+    assert reconcile(known(legacy), [same]) == [
+        Confirm("deploy-target", Evidence("session-b", 3, 4), "2026-10-02T09:00:00Z")
+    ]
 
 
 def test_the_same_point_in_slightly_different_words_counts_as_the_same_statement():

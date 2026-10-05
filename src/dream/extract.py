@@ -242,7 +242,8 @@ If it only repeats that entry, copy the entry's statement exactly too.
 reason), fact (something true about the project's world that the repository does not record), or lesson \
 (something tried and its outcome).
 - scope: global only if the person said it applies to all their work, otherwise project.
-- statement: one self-contained sentence. Someone reading only this sentence should know what to do or what is true.
+- statement: one self-contained sentence. Someone reading only this sentence should know what to do or what is true. \
+Call the person "the user". Do not use their name, and do not use he, she or any other gendered pronoun for them.
 - why: the reason given in the session, in one sentence. Empty if none was given.
 - provenance: human if the person typed it; accepted if the assistant proposed it and the person agreed; \
 inferred if you concluded it from what happened; observed if it comes from a subagent report.

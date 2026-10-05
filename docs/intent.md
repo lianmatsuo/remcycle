@@ -49,7 +49,7 @@ Admission test: an entry gets in only if the repo cannot tell you it and it orig
 1. **Ingest** new and changed transcripts into the archive.
 2. **Extract.** For each unread session the model proposes claims and open threads, each claim with a passage quoted from the turns it cites. This is the only model step, and what the model made of a session is kept, so no session is paid for twice.
 3. **Check.** Code throws out any claim whose quote is not in the turns it cites, and lowers a claim's provenance to what those turns bear out: it carries the person's authority only if the person typed the quoted passage.
-4. **Reconcile** in code, per slot. The same statement adds evidence. A different one supersedes the entry if it has at least the same authority and is newer. A weaker one is put to the person; for a fact it also withholds the entry, since the world may have changed. A new entry needs the person's words or agreement behind it, unless it is a lesson.
+4. **Reconcile** in code, per slot. The same statement adds evidence. A different one supersedes the entry if it has at least the same authority and is newer. A memory from before remcycle is the exception: a different statement there is always put to the person. A weaker one is put to the person; for a fact it also withholds the entry, since the world may have changed. A new entry needs the person's words or agreement behind it, unless it is a lesson.
 5. **Stage and gate.** The changes are made in a throwaway copy of remcycle's own copy of the project's memory. The gate refuses the copy if an entry vanished without a record, if a memory file changed outside any recorded operation, or if the index would be cut off by Claude Code or points at a missing file. A refused copy changes nothing and its sessions stay unread.
 6. **Report** what changed and what waits for a ruling.
 7. **Publish**, only when asked: write the accepted memory to the folder Claude Code loads, unless that folder changed while the dream ran.
@@ -108,11 +108,19 @@ Each is dated 2026-10-05 unless noted.
 
 **Every claim must quote the session.** Rejected: trusting the model's own account of who said what. Code checks the quote against the cited turns and sets provenance from who wrote them. On the first real session this threw out one claim of four and kept two of the assistant's own conclusions from being stored as decisions.
 
+**A memory from before remcycle is never replaced without the person's ruling.** Rejected: letting a claim of equal authority supersede it, which the first version did. Such a memory can hold several statements, and a claim replaces it with one. On the first full run a broad note on product naming was replaced by a narrow point about one sign-in screen. A differing claim on such a slot is now always put to the person.
+
 **A lesson nobody endorsed stays out of the index.** It is the model's conclusion, the kind of context that costs more than it helps when always loaded. It stays on file for recall.
 
 **One archive database, scoped at query time.** Rejected for now: a database per project. Search defaults to the current project and crossing projects takes an explicit flag. The file lives at `~/.local/share/remcycle/archive.db`, outside `~/.claude`, which Claude Code manages and sweeps.
 
 **Search covers prose by default.** Tool calls are three quarters of archived turns and outranked the prose that explained them, so they are searched only on request. So are subagent reports.
+
+## The first full run
+
+On the development machine on 2026-10-05 the dream read 28 sessions through Sonnet, for $13.43 of use at API prices. It wrote 80 entries: 48 from the person's own words, 5 the person agreed to, and 27 lessons nobody endorsed, which stay out of the index. It rejected 19 claims, some for quotes that were not in the turns cited and the rest for having nothing the person said behind them. It noted 66 open threads. Every project's changes passed the gate.
+
+Two faults showed up and were fixed: the supersession described above, and five statements that guessed a pronoun for the person, which the extraction prompt now forbids.
 
 ## Facts this design depends on
 

@@ -89,6 +89,7 @@ def test_the_model_is_shown_what_memory_already_holds_and_the_prose_but_not_the_
     assert "[3] person: no, always use pnpm for JS projects, npm lockfiles drifted on us" in prompt
     assert "[1] assistant: I'll use npm unless you prefer something else." in prompt
     assert "npm init" not in prompt
+    assert 'Call the person "the user"' in prompt
 
 
 def test_a_session_too_long_for_one_pass_is_read_in_several_and_the_results_are_joined():

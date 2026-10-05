@@ -56,8 +56,6 @@ class Reject:
 Op = Add | Confirm | Supersede | Contest | Question | Reject
 
 _AUTHORITY = {Provenance.HUMAN: 3, Provenance.ACCEPTED: 2, Provenance.INFERRED: 1, Provenance.OBSERVED: 0}
-# A memory from before provenance was kept was written in a session from what the person said.
-_LEGACY_AUTHORITY = _AUTHORITY[Provenance.ACCEPTED]
 # A new entry has to rest on what the person said or agreed to, unless it is a lesson.
 _THE_PERSONS_WORD = {Provenance.HUMAN, Provenance.ACCEPTED}
 # Only the person changes these, so a weaker claim cannot unseat one.
@@ -86,7 +84,11 @@ def _decide(entry: Entry | None, claim: Claim) -> Op | None:
         return None if claim.evidence in entry.evidence else Confirm(claim.slot, claim.evidence, claim.said_at)
     if entry.said_at and claim.said_at < entry.said_at:
         return None
-    if _AUTHORITY[claim.provenance] >= _authority(entry):
+    if entry.provenance is None:
+        # A memory from before remcycle can hold more than the one statement a claim would
+        # replace it with, so only the person decides whether it goes.
+        return Question(claim.slot, claim)
+    if _AUTHORITY[claim.provenance] >= _AUTHORITY[entry.provenance]:
         return Supersede(claim.slot, claim)
     if (entry.type or claim.type) in _THE_PERSONS_CALL:
         return Question(claim.slot, claim)
@@ -113,10 +115,6 @@ def after(entry: Entry | None, op: Op) -> Entry:
             return replace(entry, status=Status.CONTESTED)
         case Question():
             return entry
-
-
-def _authority(entry: Entry) -> int:
-    return _AUTHORITY[entry.provenance] if entry.provenance else _LEGACY_AUTHORITY
 
 
 _NEGATIONS = {"not", "no", "never", "dont", "without", "stop", "avoid", "instead"}

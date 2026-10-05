@@ -49,6 +49,7 @@ The model is used for one step only: reading a session and proposing claims, eac
 - A claim carries your authority only if you typed the quoted passage.
 - A new entry needs your words or your agreement behind it, unless it is a lesson. A lesson nobody endorsed is kept on file but left out of the index every session loads.
 - The same statement heard again adds evidence. A different one replaces the entry if it has at least the same authority and is newer. A weaker one is put to you instead.
+- A memory written before remcycle is never replaced without your ruling. A claim that differs from it is put to you.
 
 The dream works on its own copy of each project's memory under `~/.local/share/remcycle/memory/`, staged and checked before it is accepted. The memory Claude Code loads is not touched unless you pass `--publish`, and publishing is refused if that memory changed while the dream ran.
 
