@@ -27,10 +27,16 @@ Then set its schedule, folder and permission mode in the app: Code tab, Routines
 ## cron
 
 ```
-30 3 * * * dream run >> ~/.local/share/remcycle/dream.log 2>&1
+30 3 * * * USER=you PATH=/home/you/.local/bin:/usr/bin:/bin /home/you/.local/bin/dream run >> /home/you/.local/share/remcycle/dream.log 2>&1
 ```
 
-cron runs with a minimal `PATH`. Give the full paths to `dream` and make sure `claude` can be found, or the model step will fail and the sessions will stay unread.
+cron starts a command with almost nothing in its environment, so the line carries what the run needs:
+
+- the full path to `dream`, which `command -v dream` prints;
+- a `PATH` that holds the folders of `claude` and `git`, and of `gh` if the dream should read merged pull requests;
+- `USER`. On macOS, `claude` started without it reports `Not logged in`.
+
+Read the log after the first night. A session the model could not be asked about stays unread and is listed there with the reason.
 
 ## Publishing
 
