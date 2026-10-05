@@ -6,6 +6,7 @@ import type { Closure, Memory, Status, Thread, View } from '../types'
 const PANE = 'remcycle'
 const RECALL = 'mcp__remcycle__recall'
 const CLOSE = 'mcp__remcycle__close_thread'
+const SETTLE = 'mcp__remcycle__settle_memory'
 const MEMORY_FILE = /\/memory\/[^/]+\.md$/
 const LATELY = 3
 const PER_PAGE = 12
@@ -205,7 +206,8 @@ function readable(value: unknown): Status | null {
         w.reasons.every(isText) &&
         isTextOrNull(w.from) &&
         typeof w.withheld === 'boolean' &&
-        isTextOrNull(w.evidence),
+        isTextOrNull(w.evidence) &&
+        isText(w.file),
     ) &&
     isListOf(value.open_threads, t => isText(t.slot) && isText(t.statement) && isText(t.seen_at)) &&
     isListOf(value.elsewhere, o => isText(o.project) && typeof o.waiting === 'number') &&
@@ -215,6 +217,34 @@ function readable(value: unknown): Status | null {
     )
 
   return isStatus ? (value as Status) : null
+}
+
+// What each button now drawn in the pane does, by its key, and how the pane stood when it was drawn.
+// Closures cannot be kept in state, and both are rebuilt by the next drawing.
+const presses = new Map<string, () => unknown>()
+let drawn: { surface: string; isFocused: boolean } | null = null
+let fired: { key: string; at: number } | null = null
+const SAME_CLICK_MS = 500
+
+/** Does what the button under `key` does, once for one click however the surface reports it. */
+async function fire($: EngineInterface, key: string): Promise<void> {
+  const at = await $.clock.now()
+
+  if (fired !== null && fired.key === key && at - fired.at < SAME_CLICK_MS) {
+    return
+  }
+
+  fired = { key, at }
+  await presses.get(key)?.()
+}
+
+/** What `out` holds as JSON, or null if it is not JSON. */
+function parsed(out: string | null): unknown {
+  try {
+    return out === null ? null : JSON.parse(out)
+  } catch {
+    return null
+  }
 }
 
 /** Runs remcycle's command line and returns what it printed, or null if it failed. */
@@ -232,16 +262,7 @@ async function scope($: EngineInterface): Promise<string[]> {
 }
 
 async function refresh($: EngineInterface): Promise<void> {
-  const out = await dream($, ['status', ...(await scope($))])
-  let answer: unknown = null
-
-  try {
-    answer = out === null ? null : JSON.parse(out)
-  } catch {
-    answer = null
-  }
-
-  const now = readable(answer)
+  const now = readable(parsed(await dream($, ['status', ...(await scope($))])))
   await update($, status, () => now)
 }
 
@@ -272,6 +293,25 @@ async function act($: EngineInterface, doing: string, done: string, change: () =
     await refresh($)
     await update($, busy, () => null)
   }
+}
+
+/** Puts a question in the prompt box as the start of a message, for the person to finish and send. */
+async function discuss($: EngineInterface, question: Status['waiting'][number], where: string): Promise<void> {
+  const lines = [
+    'Help me settle a memory that is in question.',
+    `Memory: ${question.slot}, in ${where}`,
+    ...(question.holds === null ? [] : [`It says: ${question.holds}`]),
+    ...(question.suggests === null ? [] : [`A session suggested instead: ${question.suggests}`]),
+    ...(question.reasons.length === 0 ? [] : [`In question because: ${question.reasons.join('; ')}`]),
+    `File: ${question.file}`,
+  ]
+  const filled = await $.prompt.fill({ text: `${lines.join('\n')}\n`, mode: 'append' })
+
+  await update($, last, () =>
+    filled.isFilled
+      ? `Done: added ${heading(question.slot)} to your message`
+      : 'Not added: the prompt box could not take it just now.',
+  )
 }
 
 /** What the Refresh button does: reads the status again, and lets go of a change that never finished saving. */
@@ -355,6 +395,23 @@ export const register: Register = on => {
           reason: { type: 'string', description: 'One line on what finished it' },
         },
         required: ['slot', 'reason'],
+      },
+    })
+    await $.tool.register({
+      name: 'settle_memory',
+      description:
+        'Apply the ruling the person reached on a memory that is in question, after talking it through with them. ' +
+        'Give `slot`, the memory\'s name, `project`, the project folder named with it, and `ruling`: `keep` leaves ' +
+        'the memory as it is, `retire` takes it out of use, `take` replaces it with what a session suggested. ' +
+        'Call it only once the person has said which. To reword a memory instead, edit its file, then use `keep`.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slot: { type: 'string', description: "The memory's name" },
+          ruling: { type: 'string', enum: ['keep', 'retire', 'take'] },
+          project: { type: 'string', description: 'The project folder the memory belongs to' },
+        },
+        required: ['slot', 'ruling'],
       },
     })
     await $.command.register({
@@ -464,6 +521,50 @@ export const register: Register = on => {
     return { result: out ?? `Not closed: no open thread is named ${slot}, or remcycle could not be reached.` }
   })
 
+  on('tool.call', { tool: SETTLE }, async ($, e) => {
+    const asked = e as Record<string, unknown>
+    const slot = String(asked.slot ?? '').trim()
+    const ruling = String(asked.ruling ?? '')
+    const where = typeof asked.project === 'string' && asked.project !== '' ? ['--project', asked.project] : []
+
+    if (slot === '' || !['keep', 'retire', 'take'].includes(ruling)) {
+      return { result: 'Not settled: give `slot` and a `ruling` of keep, retire or take.' }
+    }
+
+    const question = readable(parsed(await dream($, ['status', ...where])))?.waiting.find(one => one.slot === slot)
+
+    if (question === undefined) {
+      return { result: `Not settled: no question is waiting on ${slot}.` }
+    }
+
+    if (ruling === 'retire' && question.suggests !== null) {
+      return { result: `Not settled: ${slot} has a suggestion waiting, so the rulings open are take or keep.` }
+    }
+
+    if (ruling === 'take' && question.suggests === null) {
+      return { result: `Not settled: ${slot} has no suggestion waiting, so the rulings open are retire or keep.` }
+    }
+
+    const out = await dream($, ['resolve', ...where, slot, ruling === 'keep' ? '--keep' : '--accept'])
+    await refresh($)
+
+    return { result: out ?? 'Not settled: remcycle could not save it. Another dream command may be running.' }
+  })
+
+  // On the desktop a click on a pane that does not hold the keyboard only gives it the keyboard: the
+  // surface reports the ring moving onto the button and no press. That move is taken as the press.
+  // A move while the pane already holds the keyboard is Tab or an arrow, and stays a move.
+  on('ui.focus', { requestId: PANE }, async ($, e, next) => {
+    const moved = await next(e)
+    const isClickThatFocused = drawn !== null && drawn.surface === 'desktop' && !drawn.isFocused
+
+    if (e.origin.kind === 'person' && e.element !== undefined && isClickThatFocused && moved.deny === undefined) {
+      void fire($, e.element)
+    }
+
+    return moved
+  })
+
   on('tool.call', { tool: 'Read' }, async ($, e, next) => {
     const ran = await next(e)
 
@@ -491,6 +592,13 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Button, Text } = $.ui.resolve(e)
+    drawn = { surface: e.surface, isFocused: e.props.isFocused }
+    presses.clear()
+    const press = (key: string, run: () => unknown) => {
+      presses.set(key, run)
+
+      return () => fire($, key)
+    }
     // The terminal has no Svg, and its table answers the name with an element that draws nothing.
     const Svg = e.surface === 'terminal' ? null : $.ui.resolve(e).Svg
     const now = readable(await read($, status))
@@ -499,7 +607,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column" rowGap={1}>
           <Text dimColor>No readable answer from the `dream` command yet.</Text>
-          <Button key="refresh" label="Refresh" onPress={() => reset($)} />
+          <Button key="refresh" label="Refresh" onPress={press('refresh', () => reset($))} />
         </Box>
       )
     }
@@ -556,7 +664,7 @@ export const register: Register = on => {
             <Text bold>{heading(closure.slot)}</Text>
             <Box columnGap={1} alignItems="center" flexShrink={0}>
               <Text dimColor>{ago(closure.at, clock)}</Text>
-              <Button key={`reopen-${closure.slot}`} label="Reopen" onPress={() => reopen($, closure.slot)} />
+              <Button key={`reopen-${closure.slot}`} label="Reopen" onPress={press(`reopen-${closure.slot}`, () => reopen($, closure.slot))} />
             </Box>
           </Box>
           <Text dimColor>{isWhole ? how : brief(how)}</Text>
@@ -570,7 +678,7 @@ export const register: Register = on => {
           <Text bold>{heading(thread.slot)}</Text>
           <Box columnGap={1} alignItems="center" flexShrink={0}>
             <Text dimColor>{ago(thread.seen_at, clock)}</Text>
-            <Button key={`close-${thread.slot}`} label="Done" onPress={() => close($, thread.slot)} />
+            <Button key={`close-${thread.slot}`} label="Done" onPress={press(`close-${thread.slot}`, () => close($, thread.slot))} />
           </Box>
         </Box>
         {isWhole ? <Text>{thread.statement}</Text> : <Text dimColor>{brief(thread.statement)}</Text>}
@@ -593,7 +701,7 @@ export const register: Register = on => {
         <Box flexDirection="column" rowGap={1}>
           <Box justifyContent="space-between" alignItems="center">
             <Text bold>{shown === 'memories' ? 'All memories' : 'Left open'}</Text>
-            <Button key="show-home" label="Back" onPress={() => show($, 'home')} />
+            <Button key="show-home" label="Back" onPress={press('show-home', () => show($, 'home'))} />
           </Box>
           <Text dimColor>
             {shown === 'memories'
@@ -603,9 +711,9 @@ export const register: Register = on => {
           {rows.slice(first, last)}
           {rows.length > PER_PAGE && (
             <Box columnGap={1} alignItems="center">
-              {first > 0 && <Button key="sooner" label="Previous" onPress={() => update($, page, n => Math.max(0, n - 1))} />}
+              {first > 0 && <Button key="sooner" label="Previous" onPress={press('sooner', () => update($, page, n => Math.max(0, n - 1)))} />}
               <Text dimColor>{`${first + 1} to ${last} of ${rows.length}`}</Text>
-              {last < rows.length && <Button key="later" label="Next" onPress={() => update($, page, n => n + 1)} />}
+              {last < rows.length && <Button key="later" label="Next" onPress={press('later', () => update($, page, n => n + 1))} />}
             </Box>
           )}
         </Box>
@@ -631,8 +739,8 @@ export const register: Register = on => {
             </Text>
           </Box>
           <Box columnGap={1} flexShrink={0}>
-            {viewing !== null && <Button key="home-project" label="Back" onPress={() => look($, null)} />}
-            <Button key="refresh" label="Refresh" onPress={() => reset($)} />
+            {viewing !== null && <Button key="home-project" label="Back" onPress={press('home-project', () => look($, null))} />}
+            <Button key="refresh" label="Refresh" onPress={press('refresh', () => reset($))} />
           </Box>
         </Box>
         {saving !== null ? <Text color="warning">{`Saving: ${saving}…`}</Text> : did !== null && <Text dimColor>{did}</Text>}
@@ -701,15 +809,20 @@ export const register: Register = on => {
                   <Button
                     key={`accept-${question.slot}`}
                     label={question.suggests === null ? 'Retire the memory' : 'Take the suggestion'}
-                    onPress={() => rule($, question.slot, true, question.suggests !== null)}
+                    onPress={press(`accept-${question.slot}`, () => rule($, question.slot, true, question.suggests !== null))}
                   />
                   <Button
                     key={`keep-${question.slot}`}
                     label="Keep the memory"
-                    onPress={() => rule($, question.slot, false, question.suggests !== null)}
+                    onPress={press(`keep-${question.slot}`, () => rule($, question.slot, false, question.suggests !== null))}
                   />
                 </Box>
-                {now.waiting.length > 1 && <Button key="next" label="Skip" onPress={() => update($, at, n => n + 1)} />}
+                <Box columnGap={1}>
+                  <Button key="discuss" label="Add to chat" onPress={press('discuss', () => discuss($, question, now.project))} />
+                  {now.waiting.length > 1 && (
+                    <Button key="next" label="Skip" onPress={press('next', () => update($, at, n => n + 1))} />
+                  )}
+                </Box>
               </Box>
             )}
           </Box>
@@ -718,12 +831,12 @@ export const register: Register = on => {
         {now.elsewhere.slice(0, 4).map((other, n) => (
           <Box justifyContent="space-between" alignItems="center" columnGap={1}>
             <Text>{`${named(other.project)}: ${other.waiting} waiting`}</Text>
-            <Button key={`elsewhere-${n}`} label="Open" onPress={() => look($, other.project)} />
+            <Button key={`elsewhere-${n}`} label="Open" onPress={press(`elsewhere-${n}`, () => look($, other.project))} />
           </Box>
         ))}
         {title(
           'Learned lately',
-          <Button key="show-memories" label={`All ${now.memories.length}`} onPress={() => show($, 'memories')} />,
+          <Button key="show-memories" label={`All ${now.memories.length}`} onPress={press('show-memories', () => show($, 'memories'))} />,
         )}
         {learned.length === 0 && <Text dimColor>The dream has learned nothing here yet.</Text>}
         {learned.slice(0, LATELY).map(memory => memoryRow(memory, false))}
@@ -740,7 +853,7 @@ export const register: Register = on => {
         {title(
           'Left open',
           threads.length + now.closed_lately.length > 0 && (
-            <Button key="show-threads" label={`All ${threads.length}`} onPress={() => show($, 'threads')} />
+            <Button key="show-threads" label={`All ${threads.length}`} onPress={press('show-threads', () => show($, 'threads'))} />
           ),
         )}
         {threads.length === 0 && <Text dimColor>Earlier sessions left nothing open.</Text>}

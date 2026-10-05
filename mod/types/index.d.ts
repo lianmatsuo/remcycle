@@ -14,6 +14,7 @@ export type Waiting = {
   from: string | null
   withheld: boolean
   evidence: string | null
+  file: string
 }
 
 export type Status = {

@@ -187,7 +187,7 @@ def _context(archive: Archive, args: argparse.Namespace) -> int:
 
 
 def _status(archive: Archive, args: argparse.Namespace) -> int:
-    print(json.dumps(status(args.memory, _project(args), _now())))
+    print(json.dumps(status(args.memory, _project(args), _now(), live_root=args.root)))
     return 0
 
 

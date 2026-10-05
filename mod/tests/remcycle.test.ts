@@ -32,6 +32,7 @@ const STATUS = {
       from: 'inferred',
       withheld: false,
       evidence: 'dream show 7f3a9c2e --first 1 --last 1',
+      file: '/home/me/.claude/projects/-work-shop/memory/deploy-target.md',
     },
     {
       slot: 'cutover-status',
@@ -41,6 +42,7 @@ const STATUS = {
       from: null,
       withheld: true,
       evidence: null,
+      file: '/home/me/.claude/projects/-work-shop/memory/cutover-status.md',
     },
   ],
   open_threads: [
@@ -475,6 +477,7 @@ test('several findings on one memory are one question that lists them all', asyn
       from: null,
       withheld: false,
       evidence: null,
+      file: '/home/me/.claude/projects/-work-shop/memory/cutover-status.md',
     },
   ]
   commandLine(on, { status: JSON.stringify({ ...STATUS, waiting }) })
@@ -490,6 +493,101 @@ test('several findings on one memory are one question that lists them all', asyn
     expect(await ui.find({ key: 'next' })).toBeUndefined()
     await ui.unmount()
   }
+})
+
+test('a question can be put in the prompt box to be talked through, with what the model needs to act on it', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  commandLine(on, { status: JSON.stringify(STATUS) })
+  const drafts: { text: string; mode: string }[] = []
+  on('prompt.fill', async (_$, e) => {
+    drafts.push({ text: e.text, mode: e.mode })
+
+    return { isFilled: true, text: e.text, cursor: e.text.length }
+  })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'refresh' })
+  await ui.press({ key: 'next' })
+  await ui.press({ key: 'discuss' })
+
+  expect(drafts).toEqual([
+    {
+      mode: 'append',
+      text:
+        'Help me settle a memory that is in question.\n' +
+        'Memory: cutover-status, in /work/shop\n' +
+        'It says: The database cutover is planned for 12 August.\n' +
+        'In question because: it looks dated: the cutover date has passed\n' +
+        'File: /home/me/.claude/projects/-work-shop/memory/cutover-status.md\n',
+    },
+  ])
+  expect(await ui.find({ type: 'Text', text: /^Done: added Cutover status to your message$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the model applies the ruling the person reached, and only the kind the question allows', async ($, on) => {
+  const calls = commandLine(on, { status: JSON.stringify(STATUS), resolve: 'cutover-status: accepted\n' })
+
+  const retired = await $.tool.call({
+    tool: 'mcp__remcycle__settle_memory',
+    slot: 'cutover-status',
+    ruling: 'retire',
+    project: '/work/shop',
+  })
+  const mismatched = await $.tool.call({
+    tool: 'mcp__remcycle__settle_memory',
+    slot: 'deploy-target',
+    ruling: 'retire',
+    project: '/work/shop',
+  })
+  const unknown = await $.tool.call({
+    tool: 'mcp__remcycle__settle_memory',
+    slot: 'no-such-memory',
+    ruling: 'keep',
+    project: '/work/shop',
+  })
+
+  expect(retired.result).toBe('cutover-status: accepted\n')
+  expect(mismatched.result).toMatch(/has a suggestion waiting.*take.*keep/)
+  expect(unknown.result).toMatch(/no question is waiting on no-such-memory/i)
+  expect(calls.filter(call => call[1] === 'resolve')).toEqual([
+    ['dream', 'resolve', '--project', '/work/shop', 'cutover-status', '--accept'],
+  ])
+})
+
+test('on the desktop a click that only gives the pane focus still presses the button it landed on', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const calls = commandLine(on, { status: JSON.stringify(STATUS), close: 'ci-cache: closed\n' })
+  on('ui.focus', async () => ({}))
+  const click = { component: 'Pane', requestId: 'remcycle', plugin: 'remcycle', origin: { kind: 'person' } } as const
+
+  const desktop = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await desktop.press({ key: 'refresh' })
+  calls.length = 0
+
+  await $.ui.focus({ ...click, element: 'close-ci-cache' })
+  await clock.settle()
+  expect(calls.filter(call => call[1] === 'close')).toHaveLength(1)
+
+  // The app may follow the focus with the press itself. That must not act a second time.
+  await desktop.press({ key: 'close-ci-cache' })
+  expect(calls.filter(call => call[1] === 'close')).toHaveLength(1)
+  await desktop.unmount()
+
+  // A pane that already holds the keyboard gets a focus event for every Tab, which is not a press.
+  const focused = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: true }, surface: 'desktop' })
+  await clock.advance(5_000)
+  calls.length = 0
+  await $.ui.focus({ ...click, element: 'close-ci-cache' })
+  await clock.settle()
+  expect(calls.filter(call => call[1] === 'close')).toHaveLength(0)
+  await focused.unmount()
+
+  const terminal = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await $.ui.focus({ ...click, element: 'close-ci-cache' })
+  await clock.settle()
+  expect(calls.filter(call => call[1] === 'close')).toHaveLength(0)
+  await terminal.unmount()
 })
 
 test('with nothing waiting the pane says so and offers no question', async ($, on) => {

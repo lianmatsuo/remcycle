@@ -86,7 +86,7 @@ The model step runs through your own Claude Code, headless (`claude -p`), with n
 - gives Claude a `close_thread` tool, and the names of the open threads, so a conversation closes a thread when it finishes one. It has to say what finished it, and the next dream checks the claim against that conversation's own transcript and reopens the thread if the work was not done;
 - brings the archive up to date when a session ends;
 - warns Claude when it reads a memory about a file that no longer exists;
-- adds `/remcycle`, a pane showing at a glance what waits for your ruling, how many memories are in use and where they came from, how full the index is, what the dream learned lately, what sessions left open and what was closed lately. Its buttons take a claim, keep or retire an entry, and close or reopen a thread. It names the other projects with questions waiting and can switch to any of them.
+- adds `/remcycle`, a pane showing at a glance what waits for your ruling, how many memories are in use and where they came from, how full the index is, what the dream learned lately, what sessions left open and what was closed lately. Its buttons take a claim, keep or retire an entry, and close or reopen a thread. "Add to chat" puts a question in your prompt box instead, to talk it through; Claude then applies what you decide with a `settle_memory` tool. It names the other projects with questions waiting and can switch to any of them.
 
 It calls the `dream` command, so that has to be on your `PATH`:
 

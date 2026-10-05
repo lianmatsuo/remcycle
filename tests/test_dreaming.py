@@ -314,8 +314,11 @@ def test_status_lists_what_the_dream_holds_for_a_project_and_what_waits_on_the_p
     assert state["waiting"] == [
         {"slot": "deploy-target", "holds": "Deploys go to the staging cluster first.",
          "suggests": "Deploys go straight to production.", "reasons": [], "from": "inferred",
-         "withheld": False, "evidence": "dream show s-pnpm --first 1 --last 1"}
+         "withheld": False, "evidence": "dream show s-pnpm --first 1 --last 1",
+         "file": str(tmp_path / "memory" / "-work-shop" / "deploy-target.md")}
     ]
+    in_claude_code = status(tmp_path / "memory", PROJECT, now="2026-10-03T09:00:00+00:00", live_root=claude)
+    assert in_claude_code["waiting"][0]["file"] == str(claude / "-work-shop" / "memory" / "deploy-target.md")
 
     copy = MemoryStore(tmp_path / "memory" / "-work-shop")
     copy.apply([Review("deploy-target", "it looks dated: the cutover is over"), Review("deploy-target", "it repeats `x`: same rule")])

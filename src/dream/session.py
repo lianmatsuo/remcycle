@@ -58,8 +58,12 @@ def _learned(store: MemoryStore, live: Path, room: int) -> tuple[list[dict], int
     return handed, len(slots) - len(handed)
 
 
-def status(memory_root: Path, project: str, now: str) -> dict:
-    """What the dream holds for a project and what is waiting for the person's ruling."""
+def status(memory_root: Path, project: str, now: str, live_root: Path | None = None) -> dict:
+    """What the dream holds for a project and what is waiting for the person's ruling.
+
+    With `live_root`, a memory in question is pointed at in Claude Code's own folder where it
+    has a file there, since that is the file a session would edit.
+    """
     store = MemoryStore(memory_root / key(project))
     entries = store.entries()
     index = store.folder / INDEX
@@ -84,7 +88,7 @@ def status(memory_root: Path, project: str, now: str) -> dict:
             for slot, entry in sorted(entries.items())
             if entry.status == Status.ACTIVE
         ],
-        "waiting": _questions(store),
+        "waiting": _questions(store, live_root / key(project) / "memory" if live_root else None),
         "open_threads": [
             {"slot": thread.slot, "statement": thread.statement, "seen_at": thread.seen_at}
             for thread in store.left_open(now)
@@ -103,7 +107,7 @@ def _waiting_elsewhere(memory_root: Path, project: str) -> list[dict]:
     return [{"project": other, "waiting": waiting} for waiting, other in sorted(counted, key=lambda c: -c[0]) if waiting]
 
 
-def _questions(store: MemoryStore) -> list[dict]:
+def _questions(store: MemoryStore, live: Path | None) -> list[dict]:
     """What waits for the person, one question per memory.
 
     A ruling settles everything waiting on a memory at once and acts on the newest of it,
@@ -125,6 +129,7 @@ def _questions(store: MemoryStore) -> list[dict]:
                 "from": newest.provenance if newest else None,
                 "withheld": any(item.withheld for item in items),
                 "evidence": newest.evidence.command if newest else None,
+                "file": str(live / f"{slot}.md" if live and (live / f"{slot}.md").exists() else store.folder / f"{slot}.md"),
             }
         )
     return questions
