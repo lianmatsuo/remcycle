@@ -4,7 +4,19 @@ Nightly memory for Claude Code, built from its own sessions: an archive of what 
 
 The archive, the dream and the mod are built. Scheduling, publishing to live memory and installing the mod are switches you turn on yourself. It runs on macOS and Linux; Windows is untested.
 
+This is early software, written for one person's machine and released as it stands. It reads Claude Code's transcripts and, when you ask it to, writes to the memory Claude Code loads, so read what a command will do before you run it.
+
 remcycle is an independent project and is not affiliated with or endorsed by Anthropic.
+
+## Install
+
+It needs Python 3.12 or later, [uv](https://docs.astral.sh/uv/), git, and Claude Code signed in on the same machine. It has no other dependencies. From a clone of this repository:
+
+```bash
+uv tool install .
+```
+
+That puts the `dream` command on your `PATH`. The examples below use `uv run dream`, which works from the clone without installing.
 
 ## Archive
 
@@ -159,7 +171,7 @@ The Python tests sit at these seams: transcript parsing, the archive against a r
 CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test mod
 ```
 
-The mod's tests run in Claude Code's own plugin test kit.
+The mod's tests run in Claude Code's own plugin test kit, so they need Claude Code installed. The Python tests run on macOS and Linux for every push; the mod's do not.
 
 ## Licence
 
