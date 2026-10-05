@@ -555,39 +555,75 @@ test('the model applies the ruling the person reached, and only the kind the que
   ])
 })
 
-test('on the desktop a click that only gives the pane focus still presses the button it landed on', async ($, on) => {
+test('on the desktop a click reported as the ring moving onto a button presses it, once', async ($, on) => {
   const clock = mock.clock(on, { now: NOW })
   const calls = commandLine(on, { status: JSON.stringify(STATUS), close: 'ci-cache: closed\n' })
   on('ui.focus', async () => ({}))
-  const click = { component: 'Pane', requestId: 'remcycle', plugin: 'remcycle', origin: { kind: 'person' } } as const
+  const move = { component: 'Pane', requestId: 'remcycle', plugin: 'remcycle', origin: { kind: 'person' } } as const
+  const closes = () => calls.filter(call => call[1] === 'close').length
 
-  const desktop = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  await desktop.press({ key: 'refresh' })
+  // The pane has no focus: the click arrives as the ring moving, and no press.
+  const idle = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await idle.press({ key: 'refresh' })
   calls.length = 0
-
-  await $.ui.focus({ ...click, element: 'close-ci-cache' })
+  await $.ui.focus({ ...move, element: 'close-ci-cache' })
   await clock.settle()
-  expect(calls.filter(call => call[1] === 'close')).toHaveLength(1)
+  expect(closes()).toBe(1)
 
-  // The app may follow the focus with the press itself. That must not act a second time.
-  await desktop.press({ key: 'close-ci-cache' })
-  expect(calls.filter(call => call[1] === 'close')).toHaveLength(1)
-  await desktop.unmount()
+  // The surface may send the press for that same click as well.
+  await idle.press({ key: 'close-ci-cache' })
+  expect(closes()).toBe(1)
+  await idle.unmount()
 
-  // A pane that already holds the keyboard gets a focus event for every Tab, which is not a press.
-  const focused = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: true }, surface: 'desktop' })
+  // The pane has focus but the button that held the ring is gone: again the ring moves and nothing is pressed.
+  const held = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: true }, surface: 'desktop' })
   await clock.advance(5_000)
   calls.length = 0
-  await $.ui.focus({ ...click, element: 'close-ci-cache' })
+  await $.ui.focus({ ...move, element: 'close-ci-cache' })
   await clock.settle()
-  expect(calls.filter(call => call[1] === 'close')).toHaveLength(0)
-  await focused.unmount()
+  expect(closes()).toBe(1)
 
-  const terminal = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  await $.ui.focus({ ...click, element: 'close-ci-cache' })
+  // A press first and its ring move after are one click too.
+  await clock.advance(5_000)
+  calls.length = 0
+  await held.press({ key: 'close-ci-cache' })
+  await $.ui.focus({ ...move, element: 'close-ci-cache' })
   await clock.settle()
+  expect(closes()).toBe(1)
+  await held.unmount()
+})
+
+test('two presses in quick succession are two presses', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  const calls = commandLine(on, { status: JSON.stringify(STATUS), close: 'ci-cache: closed\n' })
+
+  const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: true }, surface: 'desktop' })
+  await ui.press({ key: 'refresh' })
+  await ui.press({ key: 'close-ci-cache' })
+  await ui.press({ key: 'close-ci-cache' })
+
+  expect(calls.filter(call => call[1] === 'close')).toHaveLength(2)
+  await ui.unmount()
+})
+
+test('in the terminal a ring move is only a ring move', async ($, on) => {
+  const clock = mock.clock(on, { now: NOW })
+  const calls = commandLine(on, { status: JSON.stringify(STATUS), close: 'ci-cache: closed\n' })
+  on('ui.focus', async () => ({}))
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'refresh' })
+  await $.ui.focus({
+    component: 'Pane',
+    requestId: 'remcycle',
+    plugin: 'remcycle',
+    element: 'close-ci-cache',
+    origin: { kind: 'person' },
+  })
+  await clock.settle()
+
   expect(calls.filter(call => call[1] === 'close')).toHaveLength(0)
-  await terminal.unmount()
+  await ui.unmount()
 })
 
 test('with nothing waiting the pane says so and offers no question', async ($, on) => {

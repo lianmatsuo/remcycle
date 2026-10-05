@@ -225,18 +225,25 @@ function readable(value: unknown): Status | null {
 // finds every button of the one on screen.
 type Drawing = { surface: string; isFocused: boolean; buttons: Map<string, () => unknown> }
 let drawn: Drawing | null = null
-let fired: { key: string; at: number } | null = null
+type Report = 'press' | 'move'
+let fired: { key: string; at: number; as: Report } | null = null
 const SAME_CLICK_MS = 500
 
-/** Runs what a button does, once for one click however many ways the surface reports that click. */
-async function fire($: EngineInterface, key: string, run: (() => unknown) | undefined): Promise<void> {
+/**
+ * Runs what a button does, once for one click.
+ *
+ * The desktop reports a click as a press, as the focus ring moving onto the button, or as both.
+ * A press and a move for the same button close together are one click. Two presses are two.
+ */
+async function fire($: EngineInterface, key: string, as: Report, run: (() => unknown) | undefined): Promise<void> {
   const at = await $.clock.now()
+  const isOtherHalf = fired !== null && fired.key === key && fired.as !== as && at - fired.at < SAME_CLICK_MS
 
-  if (run === undefined || (fired !== null && fired.key === key && at - fired.at < SAME_CLICK_MS)) {
+  if (run === undefined || isOtherHalf) {
     return
   }
 
-  fired = { key, at }
+  fired = { key, at, as }
   await run()
 }
 
@@ -553,15 +560,15 @@ export const register: Register = on => {
     return { result: out ?? 'Not settled: remcycle could not save it. Another dream command may be running.' }
   })
 
-  // On the desktop a click on a pane that does not hold the keyboard only gives it the keyboard: the
-  // surface reports the ring moving onto the button and no press. That move is taken as the press.
-  // A move while the pane already holds the keyboard is Tab or an arrow, and stays a move.
+  // The desktop presses a button only while the pane's focus ring is on a button that is still drawn.
+  // With the pane out of focus, or the ringed button gone (as after every ruling), a click only moves
+  // the ring onto what was clicked and no press follows. So there a person's ring move is a press.
+  // The terminal moves the ring by Tab and the arrows, where it must stay a move.
   on('ui.focus', { requestId: PANE }, async ($, e, next) => {
     const moved = await next(e)
-    const isClickThatFocused = drawn !== null && drawn.surface === 'desktop' && !drawn.isFocused
 
-    if (e.origin.kind === 'person' && e.element !== undefined && isClickThatFocused && moved.deny === undefined) {
-      void fire($, e.element, drawn?.buttons.get(e.element))
+    if (e.origin.kind === 'person' && e.element !== undefined && drawn?.surface === 'desktop' && moved.deny === undefined) {
+      void fire($, e.element, 'move', drawn.buttons.get(e.element))
     }
 
     return moved
@@ -598,7 +605,7 @@ export const register: Register = on => {
     const press = (key: string, run: () => unknown) => {
       drawing.buttons.set(key, run)
 
-      return () => fire($, key, run)
+      return () => fire($, key, 'press', run)
     }
     const finished = <Tree,>(tree: Tree): Tree => {
       drawn = drawing
