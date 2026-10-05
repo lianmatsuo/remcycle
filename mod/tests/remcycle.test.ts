@@ -46,6 +46,16 @@ const STATUS = {
   open_threads: [
     { slot: 'ci-cache', statement: 'CI cache for pnpm is not set up.', seen_at: '2026-10-03T15:00:00+00:00' },
   ],
+  elsewhere: [{ project: '/work/site', waiting: 3 }],
+  closed_lately: [
+    {
+      slot: 'lint-rules',
+      statement: 'Lint rules are not agreed.',
+      at: '2026-10-05T12:00:00+00:00',
+      by: 'session',
+      why: 'Agreed on the ruff defaults.',
+    },
+  ],
 }
 
 const PANE = {
@@ -88,7 +98,7 @@ test('a new conversation is given what applies everywhere and what the project l
   commandLine(on, {
     context: JSON.stringify({
       everywhere: ['Use pnpm for JS projects.'],
-      open_threads: ['CI cache for pnpm is not set up.'],
+      threads: [{ slot: 'ci-cache', statement: 'CI cache for pnpm is not set up.' }],
     }),
   })
 
@@ -103,7 +113,11 @@ test('a new conversation is given what applies everywhere and what the project l
     },
     {
       name: 'remcycleOpenThreads',
-      text: 'Left open by earlier sessions in this project:\n- CI cache for pnpm is not set up.',
+      text:
+        'Left open by earlier sessions in this project, each under its name:\n' +
+        '- ci-cache: CI cache for pnpm is not set up.\n' +
+        'When work in this conversation finishes one of them, call the close_thread tool with its name and one ' +
+        'line on what finished it. Do not close one that was only discussed.',
     },
   ])
 })
@@ -132,6 +146,41 @@ test('recall searches the archive with the words asked for', async ($, on) => {
   expect(calls).toEqual([
     ['dream', 'search', '--all-projects', '--also', 'old transcripts deleted', '--', 'retention', 'sweep'],
   ])
+})
+
+test('closing a thread passes on its name, what finished it and which session said so', async ($, on) => {
+  const calls = commandLine(on, { close: 'ci-cache: closed\n' })
+  on('session.id', async () => ({ value: '7f3a9c2e-1b4d-4e6f-8a90-123456789abc' }))
+
+  const answer = await $.tool.call({
+    tool: 'mcp__remcycle__close_thread',
+    slot: 'ci-cache',
+    reason: 'The cache step is in the workflow now.',
+  })
+
+  expect(answer.result).toBe('ci-cache: closed\n')
+  expect(calls).toEqual([
+    [
+      'dream',
+      'close',
+      '--why=The cache step is in the workflow now.',
+      '--session=7f3a9c2e-1b4d-4e6f-8a90-123456789abc',
+      '--',
+      'ci-cache',
+    ],
+  ])
+})
+
+test('closing a thread that is not open, or without saying what finished it, is refused in words', async ($, on) => {
+  const calls = commandLine(on, {})
+  on('session.id', async () => ({ value: '7f3a9c2e-1b4d-4e6f-8a90-123456789abc' }))
+
+  const unknown = await $.tool.call({ tool: 'mcp__remcycle__close_thread', slot: 'no-such-thread', reason: 'Done.' })
+  const unexplained = await $.tool.call({ tool: 'mcp__remcycle__close_thread', slot: 'ci-cache', reason: ' ' })
+
+  expect(unknown.result).toMatch(/no-such-thread/)
+  expect(unexplained.result).toMatch(/what finished it/)
+  expect(calls).toHaveLength(1)
 })
 
 test('recall reads turns back when given a session', async ($, on) => {
@@ -229,6 +278,60 @@ test('questions come one at a time with both sides, and a ruling is passed on', 
   }
 })
 
+test('questions waiting in another project are named, and the pane can go there and come back', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  const calls = commandLine(on, { status: JSON.stringify(STATUS), resolve: 'deploy-target: accepted\n', close: 'ci-cache: closed\n' })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'refresh' })
+
+    expect(await ui.find({ type: 'Text', text: /^site: 3 waiting$/ })).toBeDefined()
+    expect(await ui.find({ key: 'home-project' })).toBeUndefined()
+    calls.length = 0
+
+    await ui.press({ key: 'elsewhere-0' })
+    await ui.press({ key: 'accept-deploy-target' })
+    await ui.press({ key: 'close-ci-cache' })
+
+    expect(calls).toContainEqual(['dream', 'status', '--project', '/work/site'])
+    expect(calls).toContainEqual(['dream', 'resolve', '--project', '/work/site', 'deploy-target', '--accept'])
+    expect(calls).toContainEqual(['dream', 'close', '--project', '/work/site', '--', 'ci-cache'])
+    calls.length = 0
+
+    await ui.press({ key: 'home-project' })
+
+    expect(calls).toEqual([['dream', 'status']])
+    expect(await ui.find({ key: 'home-project' })).toBeUndefined()
+    await ui.unmount()
+  }
+})
+
+test('on the first screen a long statement is cut at a word, and shown whole behind the button', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  const long =
+    'The archive keeps what the person typed and what the assistant wrote word for word, and drops what tools ' +
+    'printed, because tool output is most of a transcript and none of what a later session needs to recall.'
+  const memories = [{ slot: 'archive-keeps-words', statement: long, from: 'human', said_at: '2026-10-05T09:00:00+00:00' }]
+  commandLine(on, { status: JSON.stringify({ ...STATUS, memories }) })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'refresh' })
+
+    const cut = (await ui.find({ type: 'Text', text: /^The archive keeps/ }))?.text ?? ''
+    expect(cut).toMatch(/[a-z]…$/)
+    expect(cut.length).toBeLessThanOrEqual(81)
+    expect(long.startsWith(cut.slice(0, -1))).toBe(true)
+
+    await ui.press({ key: 'show-memories' })
+
+    expect((await ui.find({ type: 'Text', text: /^The archive keeps/ }))?.text).toBe(long)
+    await ui.press({ key: 'show-home' })
+    await ui.unmount()
+  }
+})
+
 test('with nothing waiting the pane says so and offers no question', async ($, on) => {
   mock.clock(on, { now: NOW })
   commandLine(on, { status: JSON.stringify({ ...STATUS, waiting: [] }) })
@@ -237,7 +340,7 @@ test('with nothing waiting the pane says so and offers no question', async ($, o
     const ui = await $.ui.mount({ ...PANE, surface })
     await ui.press({ key: 'refresh' })
 
-    expect(await ui.find({ type: 'Text', text: /^Nothing needs you\.$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Nothing needs you in this project\.$/ })).toBeDefined()
     expect(await ui.find({ key: 'next' })).toBeUndefined()
     await ui.unmount()
   }
@@ -317,7 +420,27 @@ test('a thread left open shows its age and can be marked done', async ($, on) =>
 
     await ui.press({ key: 'close-ci-cache' })
 
-    expect(calls).toContainEqual(['dream', 'close', 'ci-cache'])
+    expect(calls).toContainEqual(['dream', 'close', '--', 'ci-cache'])
+    await ui.unmount()
+  }
+})
+
+test('a thread closed lately shows who closed it and why, and can be reopened', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  const calls = commandLine(on, { status: JSON.stringify(STATUS), reopen: 'lint-rules: open again\n' })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'refresh' })
+
+    expect(await ui.find({ type: 'Text', text: /^Closed lately$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Lint rules$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^A session closed it: Agreed on the ruff defaults\.$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^3h$/ })).toBeDefined()
+
+    await ui.press({ key: 'reopen-lint-rules' })
+
+    expect(calls).toContainEqual(['dream', 'reopen', '--', 'lint-rules'])
     await ui.unmount()
   }
 })

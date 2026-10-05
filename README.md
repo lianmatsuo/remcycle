@@ -57,7 +57,7 @@ The model is used for one step only: reading a session and proposing claims, eac
 
 The dream works on its own copy of each project's memory under `~/.local/share/remcycle/memory/`, staged and checked before it is accepted. One of the checks asks the model: given only the index, would you still open the right memory for each entry's probe question? A change that makes the index worse at that is refused.
 
-Up to 60 entries the index is one line per entry. Past that it lists topics, and each topic has a page of its entries' lines. Lines are moved between the two, never rewritten. The memory Claude Code loads is not touched unless you pass `--publish`, and publishing is refused if that memory changed while the dream ran.
+Up to 60 entries the index is one line per entry. Past that it lists topics, and each topic has a page of its entries' lines. A topic's line names every memory on its page while the index has room. Lines are moved between the two, never rewritten. A review keeps the index one line per entry if, listed by topic, it leads the model to the right memory for fewer of the entries' probe questions. The memory Claude Code loads is not touched unless you pass `--publish`, and publishing is refused if that memory changed while the dream ran.
 
 ```bash
 uv run dream queue
@@ -65,7 +65,7 @@ uv run dream queue
 
 Lists what is waiting for you. Settle one with `dream resolve SLOT --accept` or `--keep`. Accepting takes the new claim, or retires the entry where that was the question. A retired entry leaves sessions but stays on file.
 
-A thread a session left open is closed with `dream close SLOT`. It stays closed unless a later session reports it open again.
+A thread a session left open is closed with `dream close SLOT`, and `dream reopen SLOT` puts it back. A closed thread is kept for two weeks with who closed it and why, and reopens by itself if a later session reports it unfinished.
 
 ```bash
 uv run dream review
@@ -81,9 +81,10 @@ The model step runs through your own Claude Code, headless (`claude -p`), with n
 
 - gives each new conversation what you have said applies to all your work, and what earlier sessions in the project left open;
 - gives Claude a `recall` tool that searches memory and the archive, takes several phrasings at once, and reads turns back;
+- gives Claude a `close_thread` tool, and the names of the open threads, so a conversation closes a thread when it finishes one. It has to say what finished it, and the next dream checks the claim against that conversation's own transcript and reopens the thread if the work was not done;
 - brings the archive up to date when a session ends;
 - warns Claude when it reads a memory about a file that no longer exists;
-- adds `/remcycle`, a pane showing at a glance what waits for your ruling, how many memories are in use and where they came from, how full the index is, what the dream learned lately and what sessions left open. Its buttons take a claim, keep or retire an entry, and close a thread.
+- adds `/remcycle`, a pane showing at a glance what waits for your ruling, how many memories are in use and where they came from, how full the index is, what the dream learned lately, what sessions left open and what was closed lately. Its buttons take a claim, keep or retire an entry, and close or reopen a thread. It names the other projects with questions waiting and can switch to any of them.
 
 It calls the `dream` command, so that has to be on your `PATH`:
 

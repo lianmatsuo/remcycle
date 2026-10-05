@@ -52,14 +52,15 @@ def check(live: Path, staged: Path, judge: Judge | None = None) -> list[str]:
             if not (staged / target).exists():
                 problems.append(f"{listing.name} points at {target}, which is not a memory in this folder")
     if judge and not problems:
-        problems += _index_still_leads(live, staged, judge)
+        problems += index_still_leads(live, staged, judge)
     return problems
 
 
-def _index_still_leads(live: Path, staged: Path, judge: Judge) -> list[str]:
+def index_still_leads(live: Path, staged: Path, judge: Judge) -> list[str]:
     was, now = _index_text(live), _index_text(staged)
-    then, probes = MemoryStore(live).probes(), MemoryStore(staged).probes()
-    slots = sorted(set(then) & set(probes))
+    # A question written in this change still tests the index for an entry that was already there.
+    there, probes = MemoryStore(live).entries(), MemoryStore(staged).probes()
+    slots = sorted(slot for slot in probes if slot in there)
     if was == now or not slots:
         return []
     questions = [probes[slot] for slot in slots]

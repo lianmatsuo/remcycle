@@ -2,6 +2,10 @@ export type Memory = { slot: string; statement: string; from: string | null; sai
 
 export type Thread = { slot: string; statement: string; seen_at: string }
 
+export type Closure = { slot: string; statement: string; at: string; by: string; why: string }
+
+export type Elsewhere = { project: string; waiting: number }
+
 export type Waiting = {
   slot: string
   holds: string | null
@@ -20,12 +24,14 @@ export type Status = {
   memories: Memory[]
   waiting: Waiting[]
   open_threads: Thread[]
+  elsewhere: Elsewhere[]
+  closed_lately: Closure[]
 }
 
 export type View = 'home' | 'memories' | 'threads'
 
 declare module 'claude-code' {
   interface PluginState {
-    remcycle: { status: Status | null; view: View; at: number; page: number }
+    remcycle: { status: Status | null; project: string | null; view: View; at: number; page: number }
   }
 }

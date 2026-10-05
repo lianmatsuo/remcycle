@@ -1,15 +1,19 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren } from 'claude-code'
 
-import type { Memory, Status, Thread, View } from '../types'
+import type { Closure, Memory, Status, Thread, View } from '../types'
 
 const PANE = 'remcycle'
 const RECALL = 'mcp__remcycle__recall'
+const CLOSE = 'mcp__remcycle__close_thread'
 const MEMORY_FILE = /\/memory\/[^/]+\.md$/
 const LATELY = 3
 const PER_PAGE = 12
+const BRIEF = 80
 
 const status = atom({ plugin: 'remcycle', key: 'status' } as const, null)
+// The project the pane shows when it is not the session's own.
+const project = atom({ plugin: 'remcycle', key: 'project' } as const, null)
 const view = atom({ plugin: 'remcycle', key: 'view' } as const, 'home')
 const at = atom({ plugin: 'remcycle', key: 'at' } as const, 0)
 const page = atom({ plugin: 'remcycle', key: 'page' } as const, 0)
@@ -22,6 +26,11 @@ const SAID: Record<string, string> = {
   observed: "Taken from a subagent's report",
 }
 const UNSOURCED = 'Written before remcycle'
+const CLOSED_BY: Record<string, string> = {
+  you: 'You closed it',
+  session: 'A session closed it',
+  dream: 'The dream closed it',
+}
 
 // The tiles are drawn as an image, which cannot see the surface's theme: each carries its own
 // dark ground and light text so it reads the same on a light surface as on a dark one.
@@ -39,6 +48,21 @@ const SOURCES: [string | null, string, string][] = [
 
 function sentence(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+/** The start of a statement, cut at a word. The first screen shows this, and the whole is a button away. */
+function brief(text: string): string {
+  if (text.length <= BRIEF) {
+    return text
+  }
+
+  const cut = text.slice(0, BRIEF)
+
+  return `${cut.slice(0, Math.max(cut.lastIndexOf(' '), 1)).replace(/[\s,;:.]+$/, '')}…`
+}
+
+function named(path: string): string {
+  return path.split('/').filter(Boolean).at(-1) ?? path
 }
 
 /** A slot is a key such as `deploy-target`; this is how it reads as a heading. */
@@ -179,7 +203,12 @@ function readable(value: unknown): Status | null {
         typeof w.withheld === 'boolean' &&
         isTextOrNull(w.evidence),
     ) &&
-    isListOf(value.open_threads, t => isText(t.slot) && isText(t.statement) && isText(t.seen_at))
+    isListOf(value.open_threads, t => isText(t.slot) && isText(t.statement) && isText(t.seen_at)) &&
+    isListOf(value.elsewhere, o => isText(o.project) && typeof o.waiting === 'number') &&
+    isListOf(
+      value.closed_lately,
+      c => isText(c.slot) && isText(c.statement) && isText(c.at) && isText(c.by) && isText(c.why),
+    )
 
   return isStatus ? (value as Status) : null
 }
@@ -191,8 +220,15 @@ async function dream($: EngineInterface, args: string[], timeoutMs = 30_000): Pr
   return ran.exitCode === 0 ? ran.stdout : null
 }
 
+/** The arguments that point a command at the project the pane shows. */
+async function scope($: EngineInterface): Promise<string[]> {
+  const other = await read($, project)
+
+  return other === null ? [] : ['--project', other]
+}
+
 async function refresh($: EngineInterface): Promise<void> {
-  const out = await dream($, ['status'])
+  const out = await dream($, ['status', ...(await scope($))])
   let answer: unknown = null
 
   try {
@@ -206,12 +242,26 @@ async function refresh($: EngineInterface): Promise<void> {
 }
 
 async function rule($: EngineInterface, slot: string, isAccepted: boolean): Promise<void> {
-  await dream($, ['resolve', slot, isAccepted ? '--accept' : '--keep'])
+  await dream($, ['resolve', ...(await scope($)), slot, isAccepted ? '--accept' : '--keep'])
   await refresh($)
 }
 
 async function close($: EngineInterface, slot: string): Promise<void> {
-  await dream($, ['close', slot])
+  await dream($, ['close', ...(await scope($)), '--', slot])
+  await refresh($)
+}
+
+async function reopen($: EngineInterface, slot: string): Promise<void> {
+  await dream($, ['reopen', ...(await scope($)), '--', slot])
+  await refresh($)
+}
+
+/** Points the pane at another project, or with null back at the session's own. */
+async function look($: EngineInterface, other: string | null): Promise<void> {
+  await update($, project, () => other)
+  await update($, at, () => 0)
+  await update($, page, () => 0)
+  await update($, view, () => 'home')
   await refresh($)
 }
 
@@ -243,6 +293,22 @@ export const register: Register = on => {
         },
       },
     })
+    await $.tool.register({
+      name: 'close_thread',
+      description:
+        'Close a thread of unfinished work that this conversation has now finished. The threads are listed at the ' +
+        'start of the conversation under "Left open by earlier sessions", each under its name. Give `slot`, the ' +
+        "thread's name as listed, and `reason`, one line on what finished it. Call it only once the work is done, " +
+        'not when it was merely discussed. The person can reopen it.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slot: { type: 'string', description: "The thread's name, as listed" },
+          reason: { type: 'string', description: 'One line on what finished it' },
+        },
+        required: ['slot', 'reason'],
+      },
+    })
     await $.command.register({
       name: 'remcycle',
       description: 'Show what the dream holds for this project and what waits for your ruling',
@@ -259,7 +325,8 @@ export const register: Register = on => {
       return next(e)
     }
 
-    const given: { everywhere: string[]; open_threads: string[] } = JSON.parse(out)
+    const given: { everywhere: string[]; threads?: { slot: string; statement: string }[] } = JSON.parse(out)
+    const threads = given.threads ?? []
     const blocks = [...e.blocks]
 
     if (given.everywhere.length > 0) {
@@ -271,12 +338,14 @@ export const register: Register = on => {
       })
     }
 
-    if (given.open_threads.length > 0) {
+    if (threads.length > 0) {
       blocks.push({
         name: 'remcycleOpenThreads',
         text:
-          'Left open by earlier sessions in this project:\n' +
-          given.open_threads.map(line => `- ${line}`).join('\n'),
+          'Left open by earlier sessions in this project, each under its name:\n' +
+          threads.map(thread => `- ${thread.slot}: ${thread.statement}`).join('\n') +
+          '\nWhen work in this conversation finishes one of them, call the close_thread tool with its name and one ' +
+          'line on what finished it. Do not close one that was only discussed.',
       })
     }
 
@@ -307,6 +376,20 @@ export const register: Register = on => {
     const out = await dream($, args)
 
     return { result: out ?? 'remcycle could not be reached.' }
+  })
+
+  on('tool.call', { tool: CLOSE }, async ($, e) => {
+    const asked = e as Record<string, unknown>
+    const slot = String(asked.slot ?? '').trim()
+    const reason = String(asked.reason ?? '').trim()
+
+    if (slot === '' || reason === '') {
+      return { result: 'Not closed: give the thread\'s name as `slot` and what finished it as `reason`.' }
+    }
+
+    const out = await dream($, ['close', `--why=${reason}`, `--session=${await $.session.id()}`, '--', slot])
+
+    return { result: out ?? `Not closed: no open thread is named ${slot}, or remcycle could not be reached.` }
   })
 
   on('tool.call', { tool: 'Read' }, async ($, e, next) => {
@@ -351,6 +434,7 @@ export const register: Register = on => {
 
     const clock = await $.clock.now()
     const shown = await read($, view)
+    const viewing = await read($, project)
     const learned = newestFirst(
       now.memories.filter(memory => memory.from !== null),
       memory => memory.said_at,
@@ -369,26 +453,53 @@ export const register: Register = on => {
       </Box>
     )
 
+    // A row's title shares its line with what sits at the right edge. The statement gets a line of
+    // its own, so however long it is it cannot push the age or a button out of the pane.
     const memoryRow = (memory: Memory, isWhole: boolean) => (
-      <Box columnGap={1} alignItems="flex-start">
-        <Text color={color(memory)}>●</Text>
-        <Box flexDirection="column" flexGrow={1}>
-          <Text bold>{heading(memory.slot)}</Text>
-          {isWhole ? <Text>{memory.statement}</Text> : <Text dimColor wrap="truncate-end">{memory.statement}</Text>}
+      <Box flexDirection="column">
+        <Box justifyContent="space-between" columnGap={1}>
+          <Box columnGap={1}>
+            <Text color={color(memory)}>●</Text>
+            <Text bold>{heading(memory.slot)}</Text>
+          </Box>
+          <Box flexShrink={0}>
+            <Text dimColor>{ago(memory.said_at, clock)}</Text>
+          </Box>
+        </Box>
+        <Box flexDirection="column" paddingLeft={2}>
+          {isWhole ? <Text>{memory.statement}</Text> : <Text dimColor>{brief(memory.statement)}</Text>}
           {isWhole && <Text dimColor>{SAID[memory.from ?? ''] ?? UNSOURCED}</Text>}
         </Box>
-        <Text dimColor>{ago(memory.said_at, clock)}</Text>
       </Box>
     )
 
-    const threadRow = (thread: Thread, isWhole: boolean) => (
-      <Box columnGap={1} alignItems="flex-start">
-        <Box flexDirection="column" flexGrow={1}>
-          <Text bold>{heading(thread.slot)}</Text>
-          {isWhole ? <Text>{thread.statement}</Text> : <Text dimColor wrap="truncate-end">{thread.statement}</Text>}
+    const closureRow = (closure: Closure, isWhole: boolean) => {
+      const how = (CLOSED_BY[closure.by] ?? 'Closed') + (closure.why === '' ? '' : `: ${closure.why}`)
+
+      return (
+        <Box flexDirection="column">
+          <Box justifyContent="space-between" alignItems="center" columnGap={1}>
+            <Text bold>{heading(closure.slot)}</Text>
+            <Box columnGap={1} alignItems="center" flexShrink={0}>
+              <Text dimColor>{ago(closure.at, clock)}</Text>
+              <Button key={`reopen-${closure.slot}`} label="Reopen" onPress={() => reopen($, closure.slot)} />
+            </Box>
+          </Box>
+          <Text dimColor>{isWhole ? how : brief(how)}</Text>
         </Box>
-        <Text dimColor>{ago(thread.seen_at, clock)}</Text>
-        <Button key={`close-${thread.slot}`} label="Done" onPress={() => close($, thread.slot)} />
+      )
+    }
+
+    const threadRow = (thread: Thread, isWhole: boolean) => (
+      <Box flexDirection="column">
+        <Box justifyContent="space-between" alignItems="center" columnGap={1}>
+          <Text bold>{heading(thread.slot)}</Text>
+          <Box columnGap={1} alignItems="center" flexShrink={0}>
+            <Text dimColor>{ago(thread.seen_at, clock)}</Text>
+            <Button key={`close-${thread.slot}`} label="Done" onPress={() => close($, thread.slot)} />
+          </Box>
+        </Box>
+        {isWhole ? <Text>{thread.statement}</Text> : <Text dimColor>{brief(thread.statement)}</Text>}
       </Box>
     )
 
@@ -396,7 +507,11 @@ export const register: Register = on => {
       const rows =
         shown === 'memories'
           ? [...learned, ...unsourced].map(memory => memoryRow(memory, true))
-          : threads.map(thread => threadRow(thread, true))
+          : [
+              ...threads.map(thread => threadRow(thread, true)),
+              ...(now.closed_lately.length > 0 ? [<Text dimColor>Closed lately</Text>] : []),
+              ...now.closed_lately.map(closure => closureRow(closure, true)),
+            ]
       const first = Math.min(await read($, page), Math.max(0, Math.ceil(rows.length / PER_PAGE) - 1)) * PER_PAGE
       const last = Math.min(rows.length, first + PER_PAGE)
 
@@ -433,14 +548,17 @@ export const register: Register = on => {
       <Box flexDirection="column" rowGap={1}>
         <Box justifyContent="space-between" alignItems="center">
           <Box flexDirection="column">
-            <Text bold>{now.project.split('/').filter(Boolean).at(-1) ?? now.project}</Text>
+            <Text bold>{named(now.project)}</Text>
             <Text dimColor>
               {changed === ''
                 ? 'No dream has changed this yet'
                 : `Changed by a dream ${changed === 'now' ? 'just now' : `${changed} ago`}`}
             </Text>
           </Box>
-          <Button key="refresh" label="Refresh" onPress={() => refresh($)} />
+          <Box columnGap={1} flexShrink={0}>
+            {viewing !== null && <Button key="home-project" label="Back" onPress={() => look($, null)} />}
+            <Button key="refresh" label="Refresh" onPress={() => refresh($)} />
+          </Box>
         </Box>
         {Svg === null ? (
           <Box columnGap={3} flexWrap="wrap">
@@ -463,7 +581,7 @@ export const register: Register = on => {
         )}
         {title('Needs you', question !== undefined && <Text dimColor>{`${position + 1} of ${now.waiting.length}`}</Text>)}
         {question === undefined ? (
-          <Text dimColor>Nothing needs you.</Text>
+          <Text dimColor>Nothing needs you in this project.</Text>
         ) : (
           <Box flexDirection="column" rowGap={1} borderStyle="round" borderDimColor paddingX={1}>
             <Box columnGap={2}>
@@ -508,6 +626,13 @@ export const register: Register = on => {
             </Box>
           </Box>
         )}
+        {now.elsewhere.length > 0 && <Text dimColor>Waiting in other projects</Text>}
+        {now.elsewhere.slice(0, 4).map((other, n) => (
+          <Box justifyContent="space-between" alignItems="center" columnGap={1}>
+            <Text>{`${named(other.project)}: ${other.waiting} waiting`}</Text>
+            <Button key={`elsewhere-${n}`} label="Open" onPress={() => look($, other.project)} />
+          </Box>
+        ))}
         {title(
           'Learned lately',
           <Button key="show-memories" label={`All ${now.memories.length}`} onPress={() => show($, 'memories')} />,
@@ -526,14 +651,14 @@ export const register: Register = on => {
         )}
         {title(
           'Left open',
-          threads.length > LATELY ? (
+          threads.length + now.closed_lately.length > 0 && (
             <Button key="show-threads" label={`All ${threads.length}`} onPress={() => show($, 'threads')} />
-          ) : (
-            <Text dimColor>{String(threads.length)}</Text>
           ),
         )}
         {threads.length === 0 && <Text dimColor>Earlier sessions left nothing open.</Text>}
         {threads.slice(0, LATELY).map(thread => threadRow(thread, false))}
+        {now.closed_lately.length > 0 && title('Closed lately', <Text dimColor>{String(now.closed_lately.length)}</Text>)}
+        {now.closed_lately.slice(0, LATELY).map(closure => closureRow(closure, false))}
       </Box>
     )
   })

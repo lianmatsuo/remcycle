@@ -236,11 +236,11 @@ def test_a_new_session_is_given_what_applies_everywhere_and_what_this_project_le
     given = context(tmp_path / "memory", PROJECT, now="2026-10-03T09:00:00+00:00")
     assert given == {
         "everywhere": ["Use pnpm for JS projects."],
-        "open_threads": ["CI cache for pnpm is not set up."],
+        "threads": [{"slot": "ci-cache", "statement": "CI cache for pnpm is not set up."}],
     }
     assert context(tmp_path / "memory", "/work/other", now="2026-10-03T09:00:00+00:00") == {
         "everywhere": ["Use pnpm for JS projects."],
-        "open_threads": [],
+        "threads": [],
     }
     assert status(tmp_path / "memory", PROJECT, now="2026-10-03T09:00:00+00:00")["open_threads"] == [
         {"slot": "ci-cache", "statement": "CI cache for pnpm is not set up.", "seen_at": "2026-10-01T09:00:02.000Z"}
@@ -271,6 +271,10 @@ def test_status_lists_what_the_dream_holds_for_a_project_and_what_waits_on_the_p
         "- [Package manager](package-manager.md) — Use pnpm for JS projects.\n"
     )
     assert state["index"] == {"lines": 2, "line_limit": 200, "bytes": len(index.encode()), "byte_limit": 25_000}
+    assert state["elsewhere"] == []
+    assert status(tmp_path / "memory", "/work/other", now="2026-10-03T09:00:00+00:00")["elsewhere"] == [
+        {"project": "/work/shop", "waiting": 1}
+    ]
     assert state["waiting"] == [
         {"slot": "deploy-target", "holds": "Deploys go to the staging cluster first.",
          "suggests": "Deploys go straight to production.", "reason": "", "from": "inferred",
@@ -310,6 +314,40 @@ def test_a_thread_the_repository_shows_was_finished_outside_any_session_is_close
     dreamt(archive, claude, tmp_path, LeavesThreads(), witness=witness, now="2026-10-06T03:30:00+00:00")
 
     assert asked[1] == (repo, [("lint-rules", "2026-10-05T03:30:00+00:00")])
+
+
+def test_a_thread_a_session_closed_is_checked_against_that_sessions_own_transcript(archive, claude, tmp_path):
+    put_session(claude, "s-open", [human("the CI cache for pnpm still needs setting up", 0)], cwd=PROJECT)
+    ci_cache = {"slot": "ci-cache", "state": "open", "statement": "CI cache for pnpm is not set up.", "turn": 0}
+    lint = {"slot": "lint-rules", "state": "open", "statement": "Lint rules are not agreed.", "turn": 0}
+
+    class Reads(Model):
+        """Leaves two threads open after the first session; of the later ones, says only `ci-cache` is still open."""
+
+        def __init__(self):
+            super().__init__()
+            self.shown = []
+
+        def __call__(self, prompt):
+            reply = super().__call__(prompt)
+            self.shown.append(prompt.split("## Open threads")[1].split("##")[0])
+            threads = [ci_cache, lint] if self.calls == 1 else [{**ci_cache, "statement": "The cache step was only sketched."}]
+            return Reply({**reply.data, "claims": [], "threads": threads}, reply.cost_usd)
+
+    model = Reads()
+    dreamt(archive, claude, tmp_path, model, now="2026-10-02T03:30:00+00:00")
+    copy = MemoryStore(tmp_path / "memory" / "-work-shop")
+    for slot, why in (("ci-cache", "The cache step is in the workflow now."), ("lint-rules", "Agreed on the ruff defaults.")):
+        copy.close_thread(slot, by="session", session_id="s-close", why=why, at="2026-10-02T15:00:00+00:00")
+    put_session(claude, "s-close", [human("sketch the cache step, and take ruff's defaults for lint", 0)], cwd=PROJECT)
+
+    report = dreamt(archive, claude, tmp_path, model, now="2026-10-03T03:30:00+00:00")
+
+    assert "ci-cache" in model.shown[1] and "The cache step is in the workflow now." in model.shown[1]
+    assert copy.threads(now="2026-10-03T04:00:00+00:00") == {"ci-cache": "The cache step was only sketched."}
+    assert [c.slot for c in copy.closed(now="2026-10-03T04:00:00+00:00")] == ["lint-rules"]
+    assert report.projects[0].reopened == ["ci-cache"]
+    assert "Reopened `ci-cache`" in dream.dreaming.render(report)
 
 
 def test_status_says_when_a_dream_last_changed_the_projects_memory(archive, claude, tmp_path):
@@ -412,3 +450,34 @@ def test_reviewing_a_project_works_on_its_copy_and_leaves_live_memory_alone(clau
     assert (copy.topics(), copy.probes()) == (["Deploys"], {"deploy-target": "Where do deploys go first?"})
     assert [item.reason for item in copy.queue()] == ["it looks dated: production deploys are direct now"]
     assert {p.name: p.read_bytes() for p in live.iterdir()} == live_before
+
+
+def test_a_review_keeps_one_line_per_entry_when_the_index_by_topic_leads_to_fewer_memories(tmp_path):
+    claude = tmp_path / "projects"
+    live = claude / "-work-shop" / "memory"
+    live.mkdir(parents=True)
+    slots = [f"note_{n:02d}" for n in range(61)]
+    for slot in slots:
+        (live / f"{slot}.md").write_text(LEGACY.replace("deploy-target", slot))
+    (live / "MEMORY.md").write_text("".join(f"- [{slot}]({slot}.md) — a note\n" for slot in slots))
+
+    def reviewer(prompt):
+        shown = [line[4:] for line in prompt.split("## Notes")[1].splitlines() if line.startswith("### ")]
+        notes = [
+            {"slot": slot, "topic": "Deploys" if int(slot[-2:]) % 2 else "Tooling", "asks": f"What does {slot} say?",
+             "dated": False, "quote": "", "reason": ""}
+            for slot in shown
+        ]
+        return Reply({"memories": notes, "pairs": []}, cost_usd=0.03)
+
+    def prefers_entry_lines(index, questions):
+        """A stand-in for the model: finds a memory only when the index names its file."""
+        return [f"{q.split()[2]}.md" if f"({q.split()[2]}.md)" in index else "none" for q in questions]
+
+    report = review_project(PROJECT, memory_root=tmp_path / "memory", live_root=claude, runner=reviewer, judge=prefers_entry_lines)
+
+    copy = MemoryStore(tmp_path / "memory" / "-work-shop")
+    assert (report.reviewed, report.merged, report.kept_flat) == (61, True, True)
+    assert not copy.by_topic()
+    assert (tmp_path / "memory" / "-work-shop" / "MEMORY.md").read_text() == (live / "MEMORY.md").read_text()
+    assert (copy.topics(), len(copy.probes())) == (["Deploys", "Tooling"], 61)

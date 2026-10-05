@@ -9,7 +9,7 @@ import json
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from dream.claims import Claim, ClaimType, Entry, Evidence, Provenance, Status, claim_from_json, claim_to_json
@@ -35,6 +35,8 @@ _FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n?(.*)\Z", re.DOTALL)
 _LINK = re.compile(r"\]\(([^)]+)\.md\)")
 _TITLE = re.compile(r"\[([^\]]+)\]")
 _HOOK_LIMIT = 150
+# How much of a topic's titles its index line may list: all of them, or less when the index has no room.
+_TOPIC_HOOK_LIMITS = (None, 600, 300, _HOOK_LIMIT)
 _THREAD_LIFE = timedelta(days=14)
 
 
@@ -58,6 +60,19 @@ class Left:
     """When a session last reported it open."""
     checked_to: str | None = None
     """Up to when the repository's own changes have been looked at for it."""
+
+
+@dataclass(frozen=True)
+class Closed:
+    """A thread that was closed, kept for a while so it can be seen and reopened."""
+
+    slot: str
+    statement: str
+    at: str
+    by: str
+    """`you`, a `session` that said it had finished the work, or the `dream`."""
+    session_id: str | None = None
+    why: str = ""
 
 
 @dataclass(frozen=True)
@@ -91,6 +106,8 @@ class MemoryStore:
         self._queue_file = folder / SIDE / "queue.json"
         self._withheld = folder / SIDE / "withheld"
         self._threads_file = folder / SIDE / "threads.json"
+        self._closed_file = folder / SIDE / "closed.json"
+        self._flat_file = folder / SIDE / "flat"
         self._usage_file = folder / SIDE / "usage.json"
         self._lines_file = folder / SIDE / "index.md"
 
@@ -295,21 +312,24 @@ class MemoryStore:
         usage = json.loads(self._usage_file.read_text()) if self._usage_file.exists() else {}
         return usage.get(slot, {}).get("reads", 0)
 
-    def note_threads(self, threads: Sequence[Thread], session_id: str, at: str) -> None:
-        """Record what a session left open, and close what it finished."""
-        noted = self._threads()
+    def note_threads(self, threads: Sequence[Thread], session_id: str, at: str) -> list[str]:
+        """Record what a session left open, and close what it finished. Returns the closed threads it reopened."""
+        noted, closed = self._threads(), self._closed()
+        reopened = []
         for thread in threads:
             if thread.is_open:
+                if closed.pop(thread.slot, None):
+                    reopened.append(thread.slot)
                 noted[thread.slot] = {
                     "statement": thread.statement,
                     "session_id": session_id,
                     "turn": thread.turn,
                     "seen_at": at,
                 }
-            else:
-                noted.pop(thread.slot, None)
-        self._threads_file.parent.mkdir(exist_ok=True)
-        self._threads_file.write_text(json.dumps(noted, indent=2, sort_keys=True) + "\n")
+            elif thread.slot in noted:
+                closed[thread.slot] = {"thread": noted.pop(thread.slot), "at": at, "by": "dream", "session_id": session_id, "why": "a session finished it"}
+        self._threads_save(noted, closed)
+        return reopened
 
     def threads(self, now: str) -> dict[str, str]:
         """Open threads by slot, leaving out any not seen for two weeks."""
@@ -332,16 +352,63 @@ class MemoryStore:
         if noted:
             self._threads_file.write_text(json.dumps(noted, indent=2, sort_keys=True) + "\n")
 
-    def close_thread(self, slot: str) -> None:
-        """Close a thread on the person's word. A later session that reports it open reopens it."""
-        noted = self._threads()
+    def close_thread(
+        self, slot: str, *, by: str = "you", session_id: str | None = None, why: str = "", at: str | None = None
+    ) -> None:
+        """Close a thread, keeping who closed it and why. A later session that reports it open reopens it."""
+        noted, closed = self._threads(), self._closed()
         if slot not in noted:
             raise LookupError(f"no open thread named {slot!r}")
-        del noted[slot]
+        closed[slot] = {
+            "thread": noted.pop(slot),
+            "at": at or datetime.now(UTC).isoformat(),
+            "by": by,
+            "session_id": session_id,
+            "why": why,
+        }
+        self._threads_save(noted, closed)
+
+    def closed(self, now: str) -> list[Closed]:
+        """Threads closed in the last two weeks, newest first."""
+        cutoff = datetime.fromisoformat(now) - _THREAD_LIFE
+        recent = [
+            Closed(slot, record["thread"]["statement"], record["at"], record["by"], record["session_id"], record["why"])
+            for slot, record in self._closed().items()
+            if datetime.fromisoformat(record["at"]) >= cutoff
+        ]
+        return sorted(recent, key=lambda closure: datetime.fromisoformat(closure.at), reverse=True)
+
+    def reopen(self, slot: str) -> None:
+        """Put a closed thread back as it was."""
+        noted, closed = self._threads(), self._closed()
+        if slot not in closed:
+            raise LookupError(f"no closed thread named {slot!r}")
+        noted[slot] = closed.pop(slot)["thread"]
+        self._threads_save(noted, closed)
+
+    def _closed(self) -> dict[str, dict]:
+        return json.loads(self._closed_file.read_text()) if self._closed_file.exists() else {}
+
+    def _threads_save(self, noted: dict[str, dict], closed: dict[str, dict]) -> None:
+        self._threads_file.parent.mkdir(exist_ok=True)
         self._threads_file.write_text(json.dumps(noted, indent=2, sort_keys=True) + "\n")
+        self._closed_file.write_text(json.dumps(closed, indent=2, sort_keys=True) + "\n")
 
     def _threads(self) -> dict[str, dict]:
         return json.loads(self._threads_file.read_text()) if self._threads_file.exists() else {}
+
+    def by_topic(self) -> bool:
+        """Whether the index lists topics rather than one line per entry."""
+        return any(self._folder.glob(f"{TOPIC_PAGE}*.md"))
+
+    def keep_flat(self) -> None:
+        """Keep the index one line per entry however many entries there are, until `allow_topics`."""
+        self._flat_file.parent.mkdir(exist_ok=True)
+        self._flat_file.write_text("")
+        self._render()
+
+    def allow_topics(self) -> None:
+        self._flat_file.unlink(missing_ok=True)
 
     def fit_index(self, max_lines: int, max_bytes: int) -> list[str]:
         """Write the index sessions load, within budget. Returns the entries left out of it.
@@ -350,7 +417,8 @@ class MemoryStore:
         out, least useful first, to stay within the budget: memories from before remcycle
         that no session has read go first, oldest first, and what the person said or
         agreed to goes last. Past it, the index lists topics and each topic has a page of
-        its entries' lines. A line is moved or left out, never shortened or rewritten.
+        its entries' lines. A topic's line names every entry on its page while the index has
+        room, and fewer when it does not. A line is moved or left out, never shortened or rewritten.
         """
         return self._render(max_lines, max_bytes)
 
@@ -370,19 +438,26 @@ class MemoryStore:
         members = [line for line in lines if _slot_of(line)]
         topic_of = {_slot_of(line): records.get(_slot_of(line), {}).get("topic") or "" for line in members}
 
-        if len(members) > self._topics_after and len({topic for topic in topic_of.values() if topic}) >= 2:
+        by_topic = len(members) > self._topics_after and len({topic for topic in topic_of.values() if topic}) >= 2
+        if by_topic and not self._flat_file.exists():
             pages: dict[str, list[str]] = {}
             for line in members:
                 pages.setdefault(topic_of[_slot_of(line)] or "Other", []).append(line)
-            listing = []
-            for topic in sorted(pages):
-                page = f"{TOPIC_PAGE}{re.sub(r'[^a-z0-9]+', '-', topic.lower()).strip('-')}.md"
+            named = {topic: f"{TOPIC_PAGE}{re.sub(r'[^a-z0-9]+', '-', topic.lower()).strip('-')}.md" for topic in pages}
+            for topic, page in named.items():
                 (self._folder / page).write_text(f"# {topic}\n\n" + "".join(pages[topic]))
-                titles = ", ".join(_TITLE.search(line)[1] for line in pages[topic])
-                count = f"{len(pages[topic])} {'memory' if len(pages[topic]) == 1 else 'memories'}"
-                hook = titles if len(titles) <= _HOOK_LIMIT else titles[: _HOOK_LIMIT - 1] + "…"
-                listing.append(f"- [{topic}]({page}) — {count}: {hook}\n")
-            index.write_text("".join(line for line in lines if not _slot_of(line)) + "".join(listing))
+            kept = "".join(line for line in lines if not _slot_of(line))
+            for limit in _TOPIC_HOOK_LIMITS:
+                listing = []
+                for topic in sorted(pages):
+                    titles = ", ".join(_TITLE.search(line)[1] for line in pages[topic])
+                    count = f"{len(pages[topic])} {'memory' if len(pages[topic]) == 1 else 'memories'}"
+                    hook = titles if limit is None or len(titles) <= limit else titles[: limit - 1] + "…"
+                    listing.append(f"- [{topic}]({named[topic]}) — {count}: {hook}\n")
+                text = kept + "".join(listing)
+                if len(text.splitlines()) <= max_lines and len(text.encode()) <= max_bytes:
+                    break
+            index.write_text(text)
             return []
 
         def keep_rank(slot: str) -> tuple:

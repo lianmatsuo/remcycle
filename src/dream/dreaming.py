@@ -8,7 +8,7 @@ copy only when the gate finds nothing wrong.
 import json
 import re
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,7 +16,7 @@ from pathlib import Path
 from dream.archive import Archive, Undreamt
 from dream.claims import Claim, Provenance, Scope, Status
 from dream.extract import ExtractionError, Rejected, Runner, extract, from_json, to_json
-from dream.gate import Judge, check
+from dream.gate import Judge, check, index_still_leads
 from dream.memory import MemoryStore
 from dream.memory import INDEX_BYTE_LIMIT, INDEX_LINE_LIMIT, SIDE
 from dream.mirror import LiveChanged, Mirror
@@ -57,6 +57,8 @@ class ProjectReport:
     """Entries whose index line was dropped to keep the index within what Claude Code loads."""
     closed: list[tuple[str, str]] = field(default_factory=list)
     """Threads a change in the repository finished, each with that change."""
+    reopened: list[str] = field(default_factory=list)
+    """Closed threads that a session reports as unfinished."""
 
     def count(self, kind: type) -> int:
         return sum(isinstance(op, kind) for op in self.ops)
@@ -95,7 +97,7 @@ def dream(
     """
     now = now or datetime.now(UTC).isoformat()
     report = DreamReport()
-    work: dict[str, list[Undreamt]] = {project: [] for project in _known(memory_root)}
+    work: dict[str, list[Undreamt]] = {project: [] for project in known(memory_root)}
     for session in archive.awaiting_dream()[:limit]:
         work.setdefault(session.project, []).append(session)
 
@@ -119,7 +121,7 @@ def dream(
                     session.session_id,
                     archive.show(session.session_id),
                     known={**known_everywhere, **_active(store)},
-                    open_threads=store.threads(now),
+                    open_threads={**store.threads(now), **_closed_by(store, session.session_id, now)},
                     topics=store.topics(),
                     runner=runner,
                 )
@@ -128,7 +130,7 @@ def dream(
                 continue
             if not kept:
                 archive.keep_digest(session.session_id, to_json(extraction))
-            store.note_threads(extraction.threads, session.session_id, session.ended_at or now)
+            outcome.reopened += store.note_threads(extraction.threads, session.session_id, session.ended_at or now)
             report.sessions += 1
             report.cost_usd += extraction.cost_usd
             outcome.unsupported.extend(extraction.rejected)
@@ -154,7 +156,7 @@ def dream(
             looked = seen.asked
             report.cost_usd += seen.cost_usd
             for done in seen.finished:
-                store.close_thread(done.slot)
+                store.close_thread(done.slot, by="dream", why=f"finished by {done.ref}", at=now)
                 outcome.closed.append((done.slot, done.ref))
             if looked:
                 store.note_checked(now)
@@ -169,7 +171,7 @@ def dream(
                     outcome.published = True
                 except LiveChanged as e:
                     outcome.problems.append(str(e))
-        if outcome.ops or outcome.unsupported or outcome.problems or outcome.unindexed or outcome.closed:
+        if outcome.ops or outcome.unsupported or outcome.problems or outcome.unindexed or outcome.closed or outcome.reopened:
             report.projects.append(outcome)
 
     if global_claims:
@@ -189,13 +191,33 @@ def review_project(
     mirror = Mirror(memory_root / key(project))
     mirror.sync(live_root / key(project) / "memory", project)
     store = MemoryStore(mirror.stage())
+    store.allow_topics()
     report = review(store, runner)
-    store.fit_index(INDEX_LINE_LIMIT - _HEADROOM_LINES, INDEX_BYTE_LIMIT - _HEADROOM_BYTES)
+    budget = (INDEX_LINE_LIMIT - _HEADROOM_LINES, INDEX_BYTE_LIMIT - _HEADROOM_BYTES)
+    store.fit_index(*budget)
+    judge = _asked_once(judge) if judge else None
+    if judge and store.by_topic() and index_still_leads(mirror.folder, mirror.staging, judge):
+        # The topics are kept for the next time. Only the index goes back to one line per entry.
+        store.keep_flat()
+        store.fit_index(*budget)
+        report.kept_flat = True
     report.problems = check(mirror.folder, mirror.staging, judge)
     report.merged = not report.problems
     if report.merged:
         mirror.accept(f"review: {report.reviewed} memories")
     return report
+
+
+def _asked_once(judge: Judge) -> Judge:
+    """The same judge, answering a question it has already been asked from memory."""
+    answers: dict[tuple[str, tuple[str, ...]], list[str]] = {}
+
+    def asked_once(index: str, questions: Sequence[str]) -> list[str]:
+        if (index, tuple(questions)) not in answers:
+            answers[index, tuple(questions)] = judge(index, questions)
+        return answers[index, tuple(questions)]
+
+    return asked_once
 
 
 def _settle(mirror: Mirror, outcome: ProjectReport, message: str, judge: Judge | None) -> bool:
@@ -207,7 +229,16 @@ def _settle(mirror: Mirror, outcome: ProjectReport, message: str, judge: Judge |
     return outcome.merged
 
 
-def _known(memory_root: Path) -> list[str]:
+def _closed_by(store: MemoryStore, session_id: str, now: str) -> dict[str, str]:
+    """Threads this session closed itself, put back before the model so that its transcript is the second opinion."""
+    return {
+        closure.slot: f"{closure.statement} (this session closed it, saying: {closure.why})"
+        for closure in store.closed(now)
+        if closure.by == "session" and closure.session_id == session_id
+    }
+
+
+def known(memory_root: Path) -> list[str]:
     """Projects the dream already keeps a copy of memory for."""
     noted = sorted(memory_root.glob(f"*/{SIDE}/project.json")) if memory_root.is_dir() else []
     return [json.loads(file.read_text())["project"] for file in noted]
@@ -305,6 +336,8 @@ def render(report: DreamReport) -> str:
                     lines.append(f"- `{slot}` is also called `{alias}`")
         for slot, ref in project.closed:
             lines.append(f"- Closed `{slot}`: finished by {ref}")
+        for slot in project.reopened:
+            lines.append(f"- Reopened `{slot}`: a session reports it unfinished")
         if project.unindexed:
             lines.append(
                 f"- {len(project.unindexed)} entries left the index to keep it within what Claude Code loads "

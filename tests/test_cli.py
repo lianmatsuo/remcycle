@@ -1,3 +1,5 @@
+import json
+
 from dream.cli import main
 from dream.dreaming import key
 from dream.extract import Thread
@@ -45,12 +47,20 @@ def test_a_thread_is_closed_from_the_command_line(tmp_path, capsys, monkeypatch)
     copy.note_threads([Thread("ci-cache", "CI cache for pnpm is not set up.", True, 4)], "session-a", "2026-10-01T09:00:00Z")
     scope = ["--project", str(project), "--memory", str(memory), "--db", str(tmp_path / "archive.db")]
 
-    assert main(["close", "ci-cache", *scope]) == 0
+    assert main(["close", "--why=The cache step is in the workflow now.", "--session=7f3a9c2e", *scope, "--", "ci-cache"]) == 0
     assert "ci-cache" in capsys.readouterr().out
     assert copy.threads(now="2026-10-02T09:00:00Z") == {}
 
     assert main(["close", "ci-cache", *scope]) == 1
     assert "ci-cache" in capsys.readouterr().err
+
+    assert main(["status", *scope]) == 0
+    (closed,) = json.loads(capsys.readouterr().out)["closed_lately"]
+    assert (closed["slot"], closed["by"], closed["why"]) == ("ci-cache", "session", "The cache step is in the workflow now.")
+
+    assert main(["reopen", "ci-cache", *scope]) == 0
+    assert "ci-cache" in capsys.readouterr().out
+    assert list(copy.threads(now="2026-10-02T09:00:00Z")) == ["ci-cache"]
 
 
 def test_purge_lists_what_an_exclusion_would_remove_and_removes_it_only_when_told_to(tmp_path, capsys, monkeypatch):

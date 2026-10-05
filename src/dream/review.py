@@ -35,6 +35,8 @@ class ReviewReport:
     """Why each pass the model could not complete failed. Its entries are reviewed next time."""
     problems: list[str] = field(default_factory=list)
     """Why the gate refused the reviewed copy. Empty when it was accepted."""
+    kept_flat: bool = False
+    """Whether the index stayed one line per entry because by topic it led to fewer memories."""
     merged: bool = False
 
 

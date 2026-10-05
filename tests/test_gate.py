@@ -104,6 +104,24 @@ def test_an_index_that_stops_leading_to_the_right_memory_blocks_the_merge(live, 
     ]
 
 
+def test_a_question_written_in_the_change_itself_still_tests_an_entry_that_was_already_there(live, tmp_path):
+    MemoryStore(live).apply([Add(claim("package-manager", "Use pnpm for JS projects."))])
+    staged = shutil.copytree(live, tmp_path / "staged")
+    reviewed = MemoryStore(staged)
+    reviewed.set_probe("package-manager", "Which package manager do we use?")
+    reviewed.apply([Add(asked("formatter", "Format with ruff.", "Which formatter do we use?"))])
+    index = staged / "MEMORY.md"
+    index.write_text(index.read_text().replace("Use pnpm for JS projects.", "tooling"))
+    asked_about = []
+
+    def judge(index, questions):
+        asked_about.append(list(questions))
+        return picks_by_keyword(index, questions)
+
+    assert check(live, staged, judge=judge) == ["the index leads to the right memory for 0 of 1 questions, down from 1"]
+    assert asked_about == [["Which package manager do we use?"], ["Which package manager do we use?"]]
+
+
 def test_the_model_is_not_asked_when_the_index_did_not_change(live, staged):
     def must_not_be_asked(index, questions):
         raise AssertionError("the judge was asked")

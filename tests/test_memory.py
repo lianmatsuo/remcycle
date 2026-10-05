@@ -2,7 +2,7 @@ import pytest
 
 from dream.claims import Claim, ClaimType, Evidence, Provenance, Scope, Status
 from dream.extract import Thread
-from dream.memory import MemoryStore
+from dream.memory import Closed, MemoryStore
 from dream.reconcile import Add, Alias, Confirm, Contest, Demote, Question, Review, Supersede, Withhold
 
 LEGACY_FILE = """---
@@ -412,3 +412,99 @@ def test_a_line_left_out_of_a_folder_claude_code_wrote_comes_back_when_there_is_
 
     assert store.fit_index(200, 25_000) == []
     assert (written_by_claude / "MEMORY.md").read_text() == whole
+
+
+def test_a_closed_thread_is_remembered_with_who_closed_it_and_why_and_can_be_reopened(folder):
+    store = MemoryStore(folder)
+    store.note_threads([Thread("ci-cache", "CI cache for pnpm is not set up yet.", True, 4)], "session-a", "2026-10-01T09:00:00Z")
+
+    store.close_thread(
+        "ci-cache", by="session", session_id="session-b", why="The cache step is in the workflow now.", at="2026-10-02T09:00:00Z"
+    )
+
+    assert store.threads(now="2026-10-03T09:00:00Z") == {}
+    assert store.closed(now="2026-10-03T09:00:00Z") == [
+        Closed(
+            "ci-cache",
+            "CI cache for pnpm is not set up yet.",
+            "2026-10-02T09:00:00Z",
+            "session",
+            "session-b",
+            "The cache step is in the workflow now.",
+        )
+    ]
+    assert store.closed(now="2026-10-20T09:00:00Z") == []
+
+    store.reopen("ci-cache")
+
+    assert store.threads(now="2026-10-03T09:00:00Z") == {"ci-cache": "CI cache for pnpm is not set up yet."}
+    assert store.closed(now="2026-10-03T09:00:00Z") == []
+    with pytest.raises(LookupError, match="ci-cache"):
+        store.reopen("ci-cache")
+
+
+def test_a_session_that_finishes_a_thread_closes_it_and_one_that_reports_it_open_again_reopens_it(folder):
+    store = MemoryStore(folder)
+    store.note_threads([Thread("ci-cache", "CI cache for pnpm is not set up yet.", True, 4)], "session-a", "2026-10-01T09:00:00Z")
+
+    assert store.note_threads([Thread("ci-cache", "CI cache works.", False, 3)], "session-b", "2026-10-02T09:00:00Z") == []
+    assert [(c.slot, c.by, c.session_id) for c in store.closed(now="2026-10-03T09:00:00Z")] == [("ci-cache", "dream", "session-b")]
+
+    reopened = store.note_threads([Thread("ci-cache", "The cache misses on main.", True, 1)], "session-c", "2026-10-03T09:00:00Z")
+
+    assert reopened == ["ci-cache"]
+    assert store.threads(now="2026-10-04T09:00:00Z") == {"ci-cache": "The cache misses on main."}
+    assert store.closed(now="2026-10-04T09:00:00Z") == []
+
+
+@pytest.fixture
+def crowded(tmp_path):
+    """A folder only Claude Code has written to, with nine memories whose titles are long."""
+    folder = tmp_path / "crowded"
+    folder.mkdir()
+    lines = []
+    for n in range(8):
+        slot = f"reference_pool_error_{n}"
+        (folder / f"{slot}.md").write_text(LEGACY_FILE.replace("deploy-target", slot))
+        lines.append(f"- [Postgres pool error 57P01 handling, part {n}]({slot}.md) — retry once\n")
+    (folder / "formatter.md").write_text(LEGACY_FILE.replace("deploy-target", "formatter"))
+    lines.append("- [Formatter](formatter.md) — ruff\n")
+    (folder / "MEMORY.md").write_text("".join(lines))
+    store = MemoryStore(folder, topics_after=3)
+    for n in range(8):
+        store.set_topic(f"reference_pool_error_{n}", "Database")
+    store.set_topic("formatter", "Tooling")
+    return store
+
+
+def test_a_topic_line_names_every_memory_while_the_index_has_room_and_fewer_when_it_does_not(crowded):
+    index = crowded.folder / "MEMORY.md"
+
+    crowded.fit_index(200, 25_000)
+    (database,) = [line for line in index.read_text().splitlines() if "Database" in line]
+    assert all(f"Postgres pool error 57P01 handling, part {n}" in database for n in range(8))
+    assert "…" not in database
+
+    crowded.fit_index(200, 300)
+    (database,) = [line for line in index.read_text().splitlines() if "Database" in line]
+    assert len(index.read_text().encode()) <= 300
+    assert "8 memories: Postgres pool error 57P01 handling, part 0" in database and database.endswith("…")
+    assert len((crowded.folder / "_topic-database.md").read_text().splitlines()) == 2 + 8
+
+
+def test_an_index_kept_one_line_per_entry_stays_that_way_until_topics_are_allowed_again(crowded):
+    index = crowded.folder / "MEMORY.md"
+    crowded.fit_index(200, 25_000)
+    assert crowded.by_topic()
+
+    crowded.keep_flat()
+    crowded.set_topic("formatter", "Formatting")
+
+    assert not crowded.by_topic()
+    assert len(index.read_text().splitlines()) == 9 and "_topic-" not in index.read_text()
+    assert list(crowded.folder.glob("_topic-*.md")) == []
+
+    crowded.allow_topics()
+    crowded.fit_index(200, 25_000)
+
+    assert crowded.by_topic()

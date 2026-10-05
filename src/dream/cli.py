@@ -117,6 +117,8 @@ def _review(archive: Archive, args: argparse.Namespace) -> int:
     )
     print(f"{project}: {report.reviewed} memories reviewed, ${report.cost_usd:.2f} of model use")
     print(f"{report.questions} questions for you (see `dream queue`), {report.unsupported} findings dropped")
+    if report.kept_flat:
+        print("the index stays one line per entry: listed by topic it led to the right memory for fewer questions")
     for failure in report.failures:
         print(f"a pass failed and its memories will be reviewed next time: {failure}")
     for problem in report.problems:
@@ -172,8 +174,16 @@ def _purge(archive: Archive, args: argparse.Namespace) -> int:
 
 
 def _close(archive: Archive, args: argparse.Namespace) -> int:
-    MemoryStore(args.memory / key(_project(args))).close_thread(args.slot)
+    MemoryStore(args.memory / key(_project(args))).close_thread(
+        args.slot, by="session" if args.session else "you", session_id=args.session, why=args.why, at=_now()
+    )
     print(f"{args.slot}: closed")
+    return 0
+
+
+def _reopen(archive: Archive, args: argparse.Namespace) -> int:
+    MemoryStore(args.memory / key(_project(args))).reopen(args.slot)
+    print(f"{args.slot}: open again")
     return 0
 
 
@@ -270,8 +280,13 @@ def _parser(settings: Settings) -> argparse.ArgumentParser:
 
     close = command("close", _close, "close a thread a session left open")
     close.add_argument("slot")
-    close.add_argument("--project", type=Path, help="project folder (default: this repository)")
-    close.add_argument("--memory", type=Path, default=settings.memory, help=argparse.SUPPRESS)
+    close.add_argument("--why", default="", help="what finished it")
+    close.add_argument("--session", help=argparse.SUPPRESS)
+    reopen = command("reopen", _reopen, "put a closed thread back")
+    reopen.add_argument("slot")
+    for scoped in (close, reopen):
+        scoped.add_argument("--project", type=Path, help="project folder (default: this repository)")
+        scoped.add_argument("--memory", type=Path, default=settings.memory, help=argparse.SUPPRESS)
 
     note = command("note-read", _note_read, argparse.SUPPRESS)
     note.add_argument("file", type=Path)
