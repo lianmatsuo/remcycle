@@ -219,23 +219,25 @@ function readable(value: unknown): Status | null {
   return isStatus ? (value as Status) : null
 }
 
-// What each button now drawn in the pane does, by its key, and how the pane stood when it was drawn.
-// Closures cannot be kept in state, and both are rebuilt by the next drawing.
-const presses = new Map<string, () => unknown>()
-let drawn: { surface: string; isFocused: boolean } | null = null
+// The last finished drawing of the pane: where it was drawn, whether the pane held the keyboard, and
+// what each of its buttons does, by key. Closures cannot be kept in state. A drawing replaces this
+// whole only once it is finished, so an event that arrives while the next one is being made still
+// finds every button of the one on screen.
+type Drawing = { surface: string; isFocused: boolean; buttons: Map<string, () => unknown> }
+let drawn: Drawing | null = null
 let fired: { key: string; at: number } | null = null
 const SAME_CLICK_MS = 500
 
-/** Does what the button under `key` does, once for one click however the surface reports it. */
-async function fire($: EngineInterface, key: string): Promise<void> {
+/** Runs what a button does, once for one click however many ways the surface reports that click. */
+async function fire($: EngineInterface, key: string, run: (() => unknown) | undefined): Promise<void> {
   const at = await $.clock.now()
 
-  if (fired !== null && fired.key === key && at - fired.at < SAME_CLICK_MS) {
+  if (run === undefined || (fired !== null && fired.key === key && at - fired.at < SAME_CLICK_MS)) {
     return
   }
 
   fired = { key, at }
-  await presses.get(key)?.()
+  await run()
 }
 
 /** What `out` holds as JSON, or null if it is not JSON. */
@@ -559,7 +561,7 @@ export const register: Register = on => {
     const isClickThatFocused = drawn !== null && drawn.surface === 'desktop' && !drawn.isFocused
 
     if (e.origin.kind === 'person' && e.element !== undefined && isClickThatFocused && moved.deny === undefined) {
-      void fire($, e.element)
+      void fire($, e.element, drawn?.buttons.get(e.element))
     }
 
     return moved
@@ -592,19 +594,23 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Button, Text } = $.ui.resolve(e)
-    drawn = { surface: e.surface, isFocused: e.props.isFocused }
-    presses.clear()
+    const drawing: Drawing = { surface: e.surface, isFocused: e.props.isFocused, buttons: new Map() }
     const press = (key: string, run: () => unknown) => {
-      presses.set(key, run)
+      drawing.buttons.set(key, run)
 
-      return () => fire($, key)
+      return () => fire($, key, run)
+    }
+    const finished = <Tree,>(tree: Tree): Tree => {
+      drawn = drawing
+
+      return tree
     }
     // The terminal has no Svg, and its table answers the name with an element that draws nothing.
     const Svg = e.surface === 'terminal' ? null : $.ui.resolve(e).Svg
     const now = readable(await read($, status))
 
     if (now === null) {
-      return (
+      return finished(
         <Box flexDirection="column" rowGap={1}>
           <Text dimColor>No readable answer from the `dream` command yet.</Text>
           <Button key="refresh" label="Refresh" onPress={press('refresh', () => reset($))} />
@@ -697,7 +703,7 @@ export const register: Register = on => {
       const first = Math.min(await read($, page), Math.max(0, Math.ceil(rows.length / PER_PAGE) - 1)) * PER_PAGE
       const last = Math.min(rows.length, first + PER_PAGE)
 
-      return (
+      return finished(
         <Box flexDirection="column" rowGap={1}>
           <Box justifyContent="space-between" alignItems="center">
             <Text bold>{shown === 'memories' ? 'All memories' : 'Left open'}</Text>
@@ -727,7 +733,7 @@ export const register: Register = on => {
     const findings = question?.reasons.length ?? 0
     const changed = ago(now.last_dream, clock)
 
-    return (
+    return finished(
       <Box flexDirection="column" rowGap={1}>
         <Box justifyContent="space-between" alignItems="center">
           <Box flexDirection="column">
