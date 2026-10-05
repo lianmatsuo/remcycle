@@ -17,7 +17,7 @@ except ImportError:  # Windows has no fcntl, and there commands do not take turn
 
 from dream.archive import NO_PROJECT, Archive, project_of
 from dream import outside, review
-from dream.dreaming import GLOBAL, dream, key, render, review_project
+from dream.dreaming import GLOBAL, dream, key, publish_project, render, review_project
 from dream.extract import ClaudeCode
 from dream.gate import JUDGE_SCHEMA, JUDGE_SYSTEM, judge_with
 from dream.memory import MemoryStore
@@ -165,6 +165,33 @@ def _review(archive: Archive, args: argparse.Namespace) -> int:
     return 0 if report.merged else 1
 
 
+def _publish(archive: Archive, args: argparse.Namespace) -> int:
+    plan = publish_project(
+        _project(args), memory_root=args.memory, live_root=args.root, backups=args.memory.parent / "backups", write=args.yes
+    )
+    if not (plan.added or plan.replaced or plan.removed):
+        print(f"{plan.project}: Claude Code's memory already matches what the dream holds")
+        return 0
+    print(f"{plan.project} -> {plan.live}")
+    for label, names in (("add", plan.added), ("replace", plan.replaced)):
+        if names:
+            print(f"{label} {len(names)}:")
+            for name in names:
+                print(f"  {name}")
+    if plan.removed:
+        print(f"remove {len(plan.removed)}:")
+        for name, why in plan.removed:
+            print(f"  {name} ({why})")
+    if plan.refused:
+        print(f"dream: {plan.refused}", file=sys.stderr)
+        return 1
+    if plan.written:
+        print(f"written. What was there before is kept in {plan.backup}")
+    else:
+        print("nothing was written. Run again with --yes to write it.")
+    return 0
+
+
 def _queue(archive: Archive, args: argparse.Namespace) -> int:
     folders = sorted(path for path in args.memory.iterdir() if path.is_dir()) if args.memory.is_dir() else []
     waiting = [(folder.name, item) for folder in folders for item in MemoryStore(folder).queue()]
@@ -235,7 +262,7 @@ def _note_read(archive: Archive, args: argparse.Namespace) -> int:
     return 0
 
 
-_CHANGES_MEMORY = (_run, _review, _resolve, _close, _reopen)
+_CHANGES_MEMORY = (_run, _review, _publish, _resolve, _close, _reopen)
 
 
 def _project(args: argparse.Namespace) -> str:
@@ -297,6 +324,12 @@ def _parser(settings: Settings) -> argparse.ArgumentParser:
     reviewing.add_argument("--root", type=Path, default=settings.transcripts, help=argparse.SUPPRESS)
     reviewing.add_argument("--memory", type=Path, default=settings.memory, help=argparse.SUPPRESS)
     reviewing.add_argument("--model", default=settings.model, help="model for the review (default: %(default)s)")
+
+    publish = command("publish", _publish, "write a project's memory, as the dream holds it, into the folder Claude Code loads")
+    publish.add_argument("--project", type=Path, help="project folder (default: this repository)")
+    publish.add_argument("--yes", action="store_true", help="write it; without this the change is only listed")
+    publish.add_argument("--root", type=Path, default=settings.transcripts, help=argparse.SUPPRESS)
+    publish.add_argument("--memory", type=Path, default=settings.memory, help=argparse.SUPPRESS)
 
     queue = command("queue", _queue, "list disagreements waiting for your ruling")
     queue.add_argument("--memory", type=Path, default=settings.memory, help=argparse.SUPPRESS)

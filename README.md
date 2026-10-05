@@ -62,6 +62,12 @@ Up to 60 entries the index is one line per entry. Past that it lists topics, and
 With the mod loaded you do not need to publish for sessions to get what the dream learned: the mod hands each new session those memories, newest first, up to about 4,000 characters. Publishing is for changing what Claude Code itself holds, which a handed-over list cannot do: taking a retired memory out of what it loads, or shortening an index that is nearly full.
 
 ```bash
+uv run dream publish
+```
+
+Lists what publishing this project would add to, replace in and remove from the folder Claude Code loads, and writes nothing. `dream publish --yes` writes it. First it takes in whatever sessions wrote there since the dream last looked, so a session's work is never overwritten or removed. The files that were there before are copied to `~/.local/share/remcycle/backups/` before anything changes.
+
+```bash
 uv run dream queue
 ```
 

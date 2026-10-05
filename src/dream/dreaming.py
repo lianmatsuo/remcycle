@@ -208,6 +208,70 @@ def review_project(
     return report
 
 
+@dataclass
+class Publication:
+    """What publishing a project changes in the folder Claude Code loads its memory from."""
+
+    project: str
+    live: Path
+    added: list[str] = field(default_factory=list)
+    replaced: list[str] = field(default_factory=list)
+    removed: list[tuple[str, str]] = field(default_factory=list)
+    """Each file that would go, with why the dream no longer holds it."""
+    written: bool = False
+    backup: Path | None = None
+    """Where the files that were there before were copied, once written."""
+    refused: str = ""
+    """Why nothing was written although it was asked for."""
+
+
+def publish_project(
+    project: str, *, memory_root: Path, live_root: Path, backups: Path, write: bool, now: str | None = None
+) -> Publication:
+    """Work out what the dream's copy of a project's memory would change in Claude Code's own, and with `write` do it.
+
+    The copy first takes in whatever sessions wrote since the dream last looked, so publishing
+    never overwrites or removes a session's work.
+    """
+    if not project.startswith("/"):
+        raise LookupError(f"{project} has no folder of its own for Claude Code to load memory from")
+    mirror = Mirror(memory_root / key(project))
+    if not mirror.folder.exists():
+        raise LookupError(f"the dream holds no memory for {project}")
+    live = live_root / key(project) / "memory"
+    mirror.sync(live, project)
+
+    ours = {path.name: path for path in mirror.folder.glob("*.md")}
+    theirs = {path.name: path for path in live.glob("*.md")} if live.is_dir() else {}
+    entries = MemoryStore(mirror.folder).entries()
+
+    def why(name: str) -> str:
+        entry = entries.get(Path(name).stem)
+        if entry and entry.status == Status.RETIRED:
+            return "you retired it"
+        if entry and entry.status != Status.ACTIVE:
+            return "held back until you rule"
+        return "no longer in the dream's copy"
+
+    plan = Publication(
+        project,
+        live,
+        added=sorted(set(ours) - set(theirs)),
+        replaced=sorted(name for name in set(ours) & set(theirs) if ours[name].read_bytes() != theirs[name].read_bytes()),
+        removed=[(name, why(name)) for name in sorted(set(theirs) - set(ours))],
+    )
+    if write and (plan.added or plan.replaced or plan.removed):
+        stamp = datetime.fromisoformat(now or datetime.now(UTC).isoformat()).strftime("%Y-%m-%dT%H%M%SZ")
+        try:
+            mirror.publish(live, backup=backups / key(project) / stamp)
+        except LiveChanged as e:
+            plan.refused = str(e)
+        else:
+            plan.written = True
+            plan.backup = backups / key(project) / stamp
+    return plan
+
+
 def _asked_once(judge: Judge) -> Judge:
     """The same judge, answering a question it has already been asked from memory."""
     answers: dict[tuple[str, tuple[str, ...]], list[str]] = {}

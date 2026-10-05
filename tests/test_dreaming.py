@@ -5,7 +5,7 @@ import pytest
 import dream.dreaming
 from dream.archive import Archive
 from dream.dreaming import dream as run_dream
-from dream.dreaming import review_project
+from dream.dreaming import publish_project, review_project
 from dream.session import context, status
 from dream.extract import ExtractionError, Reply
 from dream.claims import Status
@@ -543,3 +543,62 @@ def test_a_long_project_path_gets_the_folder_name_claude_code_gives_it():
         "035a-oowy1q"
     )
     assert dream.dreaming.key("/work/shop") == "-work-shop"
+
+
+def test_publishing_a_project_lists_the_change_first_and_writes_it_only_when_told(archive, claude, tmp_path):
+    pnpm_session(claude)
+    dreamt(archive, claude, tmp_path, Model())
+    copy = MemoryStore(tmp_path / "memory" / "-work-shop")
+    copy.apply([Review("deploy-target", "it looks dated: the cutover is over")])
+    copy.resolve("deploy-target", accept=True)
+    live = claude / "-work-shop" / "memory"
+    before = {p.name: p.read_bytes() for p in live.iterdir()}
+    where = {"memory_root": tmp_path / "memory", "live_root": claude, "backups": tmp_path / "backups"}
+
+    plan = publish_project(PROJECT, **where, write=False)
+
+    assert (plan.added, plan.replaced, plan.removed) == (
+        ["package-manager.md"],
+        ["MEMORY.md"],
+        [("deploy-target.md", "you retired it")],
+    )
+    assert (plan.written, plan.live) == (False, live)
+    assert {p.name: p.read_bytes() for p in live.iterdir()} == before
+
+    done = publish_project(PROJECT, **where, write=True)
+
+    assert done.written
+    assert sorted(p.name for p in live.iterdir()) == ["MEMORY.md", "package-manager.md"]
+    assert (live / "MEMORY.md").read_text() == "- [Package manager](package-manager.md) — Use pnpm for JS projects.\n"
+    assert {p.name: p.read_bytes() for p in done.backup.iterdir()} == before
+
+    again = publish_project(PROJECT, **where, write=True)
+    assert (again.added, again.replaced, again.removed, again.written) == ([], [], [], False)
+
+
+def test_publishing_keeps_what_a_session_wrote_since_the_dream_last_looked(archive, claude, tmp_path):
+    pnpm_session(claude)
+    dreamt(archive, claude, tmp_path, Model())
+    live = claude / "-work-shop" / "memory"
+    (live / "release-notes.md").write_text(LEGACY.replace("deploy-target", "release-notes"))
+    with (live / "MEMORY.md").open("a") as index:
+        index.write("- [Release notes](release-notes.md) — written by hand each Friday\n")
+    (live / "deploy-target.md").write_text(LEGACY.replace("staging cluster first", "production directly"))
+
+    done = publish_project(
+        PROJECT, memory_root=tmp_path / "memory", live_root=claude, backups=tmp_path / "backups", write=True
+    )
+
+    assert done.removed == []
+    assert "production directly" in (live / "deploy-target.md").read_text()
+    assert (live / "release-notes.md").exists()
+    assert "- [Release notes](release-notes.md) — written by hand each Friday\n" in (live / "MEMORY.md").read_text()
+    assert "- [Package manager](package-manager.md)" in (live / "MEMORY.md").read_text()
+
+
+def test_only_a_project_with_a_folder_of_its_own_can_be_published(tmp_path):
+    for nowhere in ("(no project)", "(global)"):
+        with pytest.raises(LookupError, match="no folder"):
+            publish_project(nowhere, memory_root=tmp_path / "memory", live_root=tmp_path, backups=tmp_path / "b", write=True)
+    with pytest.raises(LookupError, match="holds no memory"):
+        publish_project("/work/unknown", memory_root=tmp_path / "memory", live_root=tmp_path, backups=tmp_path / "b", write=True)

@@ -6,6 +6,7 @@ from dream.cli import main
 from dream.dreaming import key
 from dream.extract import Thread
 from dream.memory import MemoryStore
+from dream.mirror import Mirror
 from support import assistant_text, human, put_session
 
 
@@ -115,3 +116,32 @@ def test_commands_that_change_memory_take_turns_and_say_so_when_they_cannot(tmp_
 
     assert main(["close", "ci-cache", *scope]) == 0
     assert copy.threads(now="2026-10-02T09:00:00Z") == {}
+
+
+def test_publish_shows_what_it_would_write_and_writes_only_with_yes(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no-settings"))
+    project = tmp_path / "shop"
+    project.mkdir()
+    name = key(str(project.resolve()))
+    live = tmp_path / "projects" / name / "memory"
+    live.mkdir(parents=True)
+    (live / "deploy-target.md").write_text("---\nname: deploy-target\ndescription: staging first\n---\n\nStaging first.\n")
+    (live / "MEMORY.md").write_text("- [Deploy target](deploy-target.md) — staging first\n")
+    memory = tmp_path / "data" / "memory"
+    Mirror(memory / name).sync(live, str(project.resolve()))
+    (memory / name / "ci-runner.md").write_text("---\nname: ci-runner\ndescription: self-hosted\n---\n\nCI is self-hosted.\n")
+    scope = ["--project", str(project), "--memory", str(memory), "--root", str(tmp_path / "projects"), "--db", str(tmp_path / "a.db")]
+
+    assert main(["publish", *scope]) == 0
+    listed = capsys.readouterr().out
+    assert "add 1" in listed and "ci-runner.md" in listed
+    assert "nothing was written" in listed and "--yes" in listed
+    assert not (live / "ci-runner.md").exists()
+
+    assert main(["publish", "--yes", *scope]) == 0
+    written = capsys.readouterr().out
+    assert "written" in written and str(tmp_path / "data" / "backups") in written
+    assert (live / "ci-runner.md").exists()
+
+    assert main(["publish", *scope]) == 0
+    assert "already matches" in capsys.readouterr().out

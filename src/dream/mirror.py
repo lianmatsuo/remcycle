@@ -72,11 +72,18 @@ class Mirror:
         shutil.copytree(self.staging, self.folder, dirs_exist_ok=True)
         self._commit(message)
 
-    def publish(self, live: Path) -> None:
-        """Write the mirror's memory files to live memory, unless live changed since the sync."""
+    def publish(self, live: Path, backup: Path | None = None) -> None:
+        """Write the mirror's memory files to live memory, unless live changed since the sync.
+
+        With `backup`, the files live held are copied there first.
+        """
         current = {path.name: _digest(path) for path in live.glob("*.md")} if live.is_dir() else {}
         if current != self._synced():
             raise LiveChanged("live memory changed during the dream, so nothing was published")
+        if backup and current:
+            backup.mkdir(parents=True, exist_ok=True)
+            for name in current:
+                shutil.copyfile(live / name, backup / name)
         live.mkdir(parents=True, exist_ok=True)
         ours = {path.name: path for path in self.folder.glob("*.md")}
         for name, path in ours.items():
