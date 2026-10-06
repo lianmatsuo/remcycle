@@ -1,0 +1,14 @@
+{
+  "name": "remcycle",
+  "description": "remcycle: nightly memory for Claude Code, built from its own sessions",
+  "owner": {
+    "name": "Lian Matsuo"
+  },
+  "plugins": [
+    {
+      "name": "remcycle",
+      "source": "./mod",
+      "description": "Hands each session what the dream learned, lets Claude recall past sessions, and adds the /remcycle panel. Needs the dream command."
+    }
+  ]
+}

@@ -33,9 +33,10 @@ The machine you are on may hold its owner's real archive and memory, under `~/.l
 
 ## The mod
 
-- It runs inside Claude Code through the function-hooks API, which is early access. The gate writes that API, as the installed Claude Code declares it, to `mod/.claude/types/claude-code.d.ts`. Look names up there.
+- It runs inside Claude Code through the mods API. The gate writes that API, as the installed Claude Code declares it, to `mod/.claude/types/claude-code.d.ts`. Look names up there.
 - Its tests use Claude Code's own kit, `claude-code/testing`, and stand in for the `dream` command.
 - The mod reaches remcycle only by running `dream` and reading what it prints. Put logic in the command, with its test, and let the mod call it.
+- A copy of the mod installed from GitHub updates only when `version` in `mod/.claude-plugin/plugin.json` changes. A release raises it together with the version in `pyproject.toml`.
 
 ## Pull requests
 

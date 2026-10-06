@@ -30,6 +30,7 @@ check_mod() {
     echo "Install Claude Code, or run: scripts/check python" >&2
     exit 1
   fi
+  # Claude Code before 2.1.287 treats mods as early access and wants this set. Later versions ignore it.
   export CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1
   step "mod manifest" claude plugin validate mod
   # Written by a headless session that needs no sign-in. The person's own settings stay out of it,

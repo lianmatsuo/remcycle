@@ -93,7 +93,7 @@ Four things never happen without you: writing into the memory Claude Code itself
 
 This is early software, written for one person's machine and released as it stands. It reads Claude Code's transcripts and, when you ask it to, writes to the memory Claude Code loads, so read what a command will do before you run it.
 
-It runs on macOS and Linux; Windows is untested. The mod was written against Claude Code 2.1.286, and its API is early access, so it can break between releases.
+It runs on macOS and Linux; Windows is untested. The mod needs Claude Code 2.1.287 or later in the terminal, or 2.1.286 in the desktop app.
 
 remcycle is an independent project and is not affiliated with or endorsed by Anthropic.
 

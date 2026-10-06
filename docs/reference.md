@@ -6,13 +6,27 @@ Every command and setting, in the order you would meet them. For the idea behind
 
 The quicker way is to [let Claude set it up](setup-with-claude.md). By hand:
 
-It needs Python 3.12 or later, [uv](https://docs.astral.sh/uv/), git, and Claude Code signed in on the same machine. It has no other dependencies. Clone this repository somewhere it can stay, because the mod runs from the clone, and from inside it:
+It needs Python 3.12 or later, [uv](https://docs.astral.sh/uv/), git, and Claude Code signed in on the same machine. The mod needs Claude Code 2.1.287 or later in the terminal, or 2.1.286 in the desktop app. There are no other dependencies.
+
+Without a clone:
+
+```bash
+uv tool install git+https://github.com/lianmatsuo/remcycle
+claude plugin marketplace add lianmatsuo/remcycle
+claude plugin install remcycle@remcycle
+```
+
+The first line puts the `dream` command on your `PATH`. The other two install the mod as a Claude Code plugin, and it loads in the next session you start. To update later, run `uv tool upgrade remcycle` and `claude plugin update remcycle@remcycle`.
+
+From a clone, which is what the setup guide does and what you want for working on remcycle:
 
 ```bash
 uv tool install --editable .
+claude plugin marketplace add .
+claude plugin install remcycle@remcycle
 ```
 
-That puts the `dream` command on your `PATH`, and keeps it in step with the clone when you `git pull`. The examples below use `uv run dream`, which works from the clone without installing.
+The command and the mod then both run from the clone. It has to stay where it is, and `git pull` updates both. The examples below use `uv run dream`, which works from the clone without installing.
 
 ## Archive
 
@@ -101,7 +115,7 @@ The model step runs through your own Claude Code, headless (`claude -p`), with n
 
 ## Mod
 
-`mod/` is a Claude Code mod (function hooks, early access). Once loaded it:
+`mod/` is a Claude Code mod: a plugin whose code runs inside Claude Code. Once loaded it:
 
 - gives each new conversation what you have said applies to all your work, what the dream has learned about the project that Claude Code's own memory does not hold, and what earlier sessions in the project left open;
 - gives Claude a `recall` tool that searches memory and the archive, takes several phrasings at once, gives a past session in brief, and reads turns back word for word;
@@ -110,26 +124,15 @@ The model step runs through your own Claude Code, headless (`claude -p`), with n
 - warns Claude when it reads a memory about a file that no longer exists;
 - adds `/remcycle`, a pane showing at a glance what waits for your ruling, how many memories are in use and where they came from, how full the index is, what the dream learned lately, what sessions left open and what was closed lately. Its buttons take a claim, keep or retire an entry, and close or reopen a thread. "Add to chat" puts a question in your prompt box instead, to talk it through; Claude then applies what you decide with a `settle_memory` tool. It names the other projects with questions waiting and can switch to any of them.
 
-It calls the `dream` command, so that has to be on your `PATH`:
-
-```bash
-uv tool install --editable .
-```
+It calls the `dream` command, so that has to be on your `PATH`. [Install by hand](#install-by-hand) has the commands for both.
 
 ```bash
 claude --plugin-dir mod
 ```
 
-That loads it for one session. To load it in every session, name the folder in the `env` block of `~/.claude/settings.json`:
+That loads it for one session without installing it, which is the way to try a change to it.
 
-```json
-"env": {
-  "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/remcycle/mod",
-  "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1"
-}
-```
-
-It was written against Claude Code 2.1.286. The mod API is early access and can change between releases.
+Mods are on by default from Claude Code 2.1.287 in the terminal and 2.1.286 in the desktop app.
 
 ## Running it every night
 
@@ -163,7 +166,7 @@ Locations follow the environment: `CLAUDE_CONFIG_DIR` for Claude Code's files, `
 
 Each part comes out by itself.
 
-- **The mod.** Take the two entries out of the `env` block of `~/.claude/settings.json`. If Claude did the setup, the file as it was before is at `~/.claude/settings.json.before-remcycle`.
+- **The mod.** `claude plugin uninstall remcycle@remcycle`, then `claude plugin marketplace remove remcycle`.
 - **The nightly run.** Delete the `remcycle-dream` task in the desktop app, or the `dream run` line in `crontab -e`.
 - **The command.** `uv tool uninstall remcycle`.
 - **What it kept.** `~/.local/share/remcycle` holds the archive, the dream's copy of memory, the reports and the backups. `~/.config/remcycle` holds the settings. Deleting both removes everything remcycle stored.

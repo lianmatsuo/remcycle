@@ -5,5 +5,8 @@
   "author": {
     "name": "Lian Matsuo"
   },
+  "homepage": "https://github.com/lianmatsuo/remcycle",
+  "repository": "https://github.com/lianmatsuo/remcycle",
+  "license": "Apache-2.0",
   "types": "./types/index.d.ts"
 }

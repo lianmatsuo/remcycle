@@ -14,6 +14,7 @@ Run `uv --version` and `claude --version`.
 
 - `uv` does not answer: remcycle is installed with it. Give the person the install line for their system from <https://docs.astral.sh/uv/getting-started/installation/>, and carry on once `uv --version` answers.
 - `claude` does not answer: the dream reads sessions through that command, so steps 5 to 7 need it. Tell the person, do steps 2 to 4, then go to step 8.
+- `claude` answers with a version older than 2.1.287: the mod in step 6 needs that version or later. Tell the person that `claude update` brings it up to date, and run it with their yes. Without it, skip step 6.
 
 Done when both answer, or you have told the person which is missing and what that leaves out.
 
@@ -85,37 +86,31 @@ Relay what the report added, and what `dream queue` shows waiting for the person
 
 ## 6. The mod in every session: Ask first
 
-The mod hands each new session what the dream learned, gives Claude a `recall` tool, and adds the `/remcycle` panel. Loading it in every session takes two entries in the `env` block of `~/.claude/settings.json`. Checking it takes two short model calls.
+The mod hands each new session what the dream learned, gives Claude a `recall` tool, and adds the `/remcycle` panel. It installs as a Claude Code plugin from this clone, and Claude Code then loads it in every session. Checking it takes one short model call.
 
-This is the check:
+**Validate.** `claude plugin validate CLONE/mod` has to pass.
+
+**Install.**
+
+```bash
+claude plugin marketplace add CLONE
+claude plugin install remcycle@remcycle
+```
+
+The first line registers the clone as a place to install plugins from, and the second installs the mod from it. `claude plugin list` then shows `remcycle@remcycle` as enabled and read from `CLONE/mod`. Where it is listed already, leave it as it is.
+
+**Confirm.** Done when this prints `WORKING`:
 
 ```bash
 claude -p 'Call the tool mcp__remcycle__recall with the query "setup". Then reply with one word: WORKING if it answered with search results or said nothing matched, UNREACHABLE if it said remcycle could not be reached, MISSING if you have no tool of that name.' --model haiku --no-session-persistence --allowedTools mcp__remcycle__recall
 ```
 
-**Validate.** `claude plugin validate CLONE/mod` has to pass.
-
-**Try it before changing anything.** Run the check with `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1` in front of `claude` and `--plugin-dir CLONE/mod` after it, which loads the mod for that one call. It has to print `WORKING`.
-
 - `UNREACHABLE`: the mod loaded and Claude Code could not run `dream`. Step 2 has the fix.
-- `MISSING`, or a failed validation: the mod does not fit this Claude Code. It was written against 2.1.286 and its API is early access. Give the person both version numbers and go to step 7.
+- `MISSING`: the mod did not load. `claude plugin list` says whether it is installed and enabled, and `claude --version` whether this Claude Code is new enough. Report both.
 
-**Keep a copy.** Copy `~/.claude/settings.json` to `~/.claude/settings.json.before-remcycle`, unless that copy is already there.
+On an answer you cannot put right, take the mod out again with `claude plugin uninstall remcycle@remcycle` and report.
 
-**Switch it on.** Merge this into `~/.claude/settings.json`, keeping everything already there:
-
-```json
-"env": {
-  "CLAUDE_CODE_PLUGIN_DIRS": "CLONE/mod",
-  "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "1"
-}
-```
-
-Where `CLAUDE_CODE_PLUGIN_DIRS` already has a value, add `CLONE/mod` to it after a `:`, unless it is already listed.
-
-**Confirm.** Run the check exactly as written above. Done when it prints `WORKING`. On any other answer, put the copy back and report.
-
-The mod loads when a session starts, so the person sees it in the next session they open.
+The mod loads when a session starts, so the person sees it in the next session they open. In a session that is already open, `/reload-plugins` loads it. The desktop app carries its own copy of Claude Code, and mods work there from 2.1.286.
 
 ## 7. The nightly run: Ask first
 
