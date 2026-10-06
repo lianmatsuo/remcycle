@@ -374,7 +374,7 @@ async function close($: EngineInterface, slot: string): Promise<void> {
 }
 
 /** Changes how the daily dream runs, through `dream daily`, which keeps the change in the settings file. */
-async function daily($: EngineInterface, change: string[], doing: string, done: string): Promise<void> {
+async function changeDaily($: EngineInterface, change: string[], doing: string, done: string): Promise<void> {
   await act($, doing, done, async () => (await dream($, ['daily', ...change])) !== null)
 }
 
@@ -809,27 +809,27 @@ export const register: Register = on => {
                 key="history-new"
                 label={`Only new ones (${daySet.waiting.new})`}
                 onPress={press('history-new', () =>
-                  daily($, ['history', 'new'], 'have the daily dream read only new sessions', 'the daily dream reads only new sessions'),
+                  changeDaily($, ['history', 'new'], 'have the daily dream read only new sessions', 'the daily dream reads only new sessions'),
                 )}
               />
               <Button
                 key="history-week"
                 label={`The week before too (${daySet.waiting.week})`}
                 onPress={press('history-week', () =>
-                  daily($, ['history', 'week'], 'have the daily dream read the week before', 'the daily dream reads the week before too'),
+                  changeDaily($, ['history', 'week'], 'have the daily dream read the week before', 'the daily dream reads the week before too'),
                 )}
               />
               <Button
                 key="history-all"
                 label={`Everything (${daySet.waiting.all})`}
                 onPress={press('history-all', () =>
-                  daily($, ['history', 'all'], 'have the daily dream read everything', 'the daily dream reads every session'),
+                  changeDaily($, ['history', 'all'], 'have the daily dream read everything', 'the daily dream reads every session'),
                 )}
               />
               <Button
                 key="daily-switch"
                 label="Turn it off"
-                onPress={press('daily-switch', () => daily($, ['off'], 'turn the daily dream off', 'turned the daily dream off'))}
+                onPress={press('daily-switch', () => changeDaily($, ['off'], 'turn the daily dream off', 'turned the daily dream off'))}
               />
             </Box>
           )}
@@ -852,8 +852,8 @@ export const register: Register = on => {
                 label={daySet.on ? 'Turn off' : 'Turn on'}
                 onPress={press('daily-switch', () =>
                   daySet.on
-                    ? daily($, ['off'], 'turn the daily dream off', 'turned the daily dream off')
-                    : daily($, ['on'], 'turn the daily dream on', 'turned the daily dream on'),
+                    ? changeDaily($, ['off'], 'turn the daily dream off', 'turned the daily dream off')
+                    : changeDaily($, ['on'], 'turn the daily dream on', 'turned the daily dream on'),
                 )}
               />
             )}
