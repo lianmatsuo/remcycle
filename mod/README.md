@@ -19,13 +19,19 @@ uv tool install git+https://github.com/lianmatsuo/remcycle
 
 Without it the mod loads and does nothing: a conversation starts unchanged, and `recall` answers that remcycle could not be reached.
 
-It needs Claude Code 2.1.287 or later in the terminal, or 2.1.286 in the desktop app.
+It runs in Claude Code only, and needs 2.1.287 or later in the terminal or 2.1.286 in the desktop app. On claude.ai and in Cowork it does nothing.
 
 ## What it reaches
 
 A mod runs with your permissions. This one starts one program, `dream`, and makes no network requests. `claude plugin validate` on this folder lists every event it handles and every call it makes.
 
 The `dream` command keeps everything on your machine. What leaves is what the daily dream sends to the model through your own Claude Code, which the mod starts once a day and `dream daily off` stops: the prose of your sessions and, for a project with unfinished work, the messages of its recent commits and the titles and descriptions of its merged pull requests.
+
+## Privacy and support
+
+remcycle collects nothing about you and has no server. [PRIVACY.md](https://github.com/lianmatsuo/remcycle/blob/main/PRIVACY.md) says what it keeps on your machine and what leaves it.
+
+Questions go to [Discussions](https://github.com/lianmatsuo/remcycle/discussions) and problems to [an issue](https://github.com/lianmatsuo/remcycle/issues). Report a security problem privately through the repository's Security tab.
 
 ## More
 

@@ -128,6 +128,7 @@ Four things never happen without you: writing into the memory Claude Code itself
 - [Reference](docs/reference.md): every command and setting.
 - [The daily dream](docs/schedule.md): its settings, and running it at a fixed time instead.
 - [Design notes](docs/intent.md): why it is built this way, and what was rejected.
+- [Privacy](PRIVACY.md): what it keeps on your machine, and what leaves it.
 
 ## Status
 

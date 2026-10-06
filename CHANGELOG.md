@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - **The daily dream is on by default.** Once a day, the first session after 20 hours starts the dream in the background, with no scheduler to set up. The panel asks once how much history it should read, shows when it last ran and why it went wrong if it did, and turns it off. `dream daily` makes the same changes from the command line.
 - **Memory stays free while a dream reads.** The model reads the sessions before the dream takes its turn at changing memory, so closing a thread or ruling on a question during a run works, and a close that does collide says to try again.
