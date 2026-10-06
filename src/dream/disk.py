@@ -1,5 +1,6 @@
 """Writing remcycle's files, moving them into place and taking them away, the same on every system."""
 
+import errno
 import os
 import secrets
 import shutil
@@ -50,16 +51,20 @@ def remove(file: Path) -> None:
 
 def clear(folder: Path) -> None:
     """Delete a folder and everything in it."""
-    _patiently(shutil.rmtree, folder)
+    # A file deleted while another process has it open can keep its place in the folder until
+    # that process lets go, and the folder is then refused as not yet empty.
+    _patiently(shutil.rmtree, folder, also=errno.ENOTEMPTY)
 
 
-def _patiently(act: Callable[..., None], *paths: Path) -> None:
+def _patiently(act: Callable[..., None], *paths: Path, also: int | None = None) -> None:
+    """Do it, and while the system refuses for want of permission, or with the error `also`, try again until patience runs out."""
     deadline = time.monotonic() + PATIENCE
     while True:
         try:
             act(*paths)
-        except PermissionError:
-            if time.monotonic() >= deadline:
+        except OSError as e:
+            is_refusal = isinstance(e, PermissionError) or (also is not None and e.errno == also)
+            if not is_refusal or time.monotonic() >= deadline:
                 raise
             time.sleep(_STEP)
         else:

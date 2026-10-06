@@ -1,3 +1,4 @@
+import errno
 import os
 import shutil
 from datetime import UTC, datetime
@@ -909,6 +910,9 @@ def test_a_delete_refused_while_a_reader_has_the_file_open_is_made_once_the_read
         if Path(folder) == mirror.staging and "folder" not in refused:
             refused.append("folder")
             raise PermissionError("another process has a file in the folder open")
+        if Path(folder) == mirror.staging and "not empty" not in refused:
+            refused.append("not empty")
+            raise OSError(errno.ENOTEMPTY, "a file deleted from the folder is still open in another process")
         rmtree(folder, *rest, **more)
 
     monkeypatch.setattr(dream.disk, "PATIENCE", 5.0)
@@ -918,5 +922,5 @@ def test_a_delete_refused_while_a_reader_has_the_file_open_is_made_once_the_read
     mirror.sync(live, PROJECT)
     staged = mirror.stage()
 
-    assert sorted(refused) == ["file", "file", "folder"]
+    assert sorted(refused) == ["file", "file", "folder", "not empty"]
     assert not (mirror.folder / "deploy-target.md").exists() and not (staged / "deploy-target.md").exists()
