@@ -4,14 +4,14 @@ import pytest
 
 import dream.dreaming
 from dream.archive import Archive
+from dream.claims import Status
 from dream.dreaming import dream as run_dream
 from dream.dreaming import publish_project, review_project
-from dream.session import context, status
 from dream.extract import ExtractionError, Reply
-from dream.claims import Status
 from dream.memory import MemoryStore
 from dream.outside import Finished, Witnessed
 from dream.reconcile import Review, Withhold
+from dream.session import context, status
 from support import assistant_text, human, put_session
 
 PROJECT = "/work/shop"

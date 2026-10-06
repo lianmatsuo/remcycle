@@ -3,7 +3,6 @@ import stat
 import pytest
 
 import dream.archive
-
 from dream.archive import NO_PROJECT, Archive
 from dream.transcript import Author
 from support import assistant_text, human, put_session, task_notification, tool_use, write_transcript

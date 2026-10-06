@@ -13,7 +13,10 @@ dependencies = []
 dream = "dream.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "pytest>=8",
+    "ruff>=0.16.10",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -21,6 +24,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dream"]
+
+[tool.ruff]
+# Wide enough for the lines the code already has, so sorting imports does not rewrap them.
+line-length = 160
+# So imports of the package and of the tests' own helpers sort as this project's.
+src = ["src", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

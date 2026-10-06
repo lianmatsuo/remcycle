@@ -11,7 +11,6 @@ import hashlib
 import json
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
-from pathlib import Path
 
 from dream.claims import Status
 from dream.extract import ExtractionError, Runner

@@ -17,11 +17,9 @@ from dream.archive import Archive, Undreamt
 from dream.claims import Claim, Provenance, Scope, Status
 from dream.extract import ExtractionError, Rejected, Runner, extract, from_json, to_json
 from dream.gate import Judge, check, index_still_leads
-from dream.memory import MemoryStore
-from dream.memory import INDEX_BYTE_LIMIT, INDEX_LINE_LIMIT, SIDE
+from dream.memory import INDEX_BYTE_LIMIT, INDEX_LINE_LIMIT, SIDE, MemoryStore
 from dream.mirror import LiveChanged, Mirror
 from dream.outside import Witness
-from dream.review import ReviewReport, review
 from dream.reconcile import (
     Add,
     Alias,
@@ -36,6 +34,7 @@ from dream.reconcile import (
     Withhold,
     reconcile,
 )
+from dream.review import ReviewReport, review
 
 GLOBAL = "(global)"
 # Room left in the index for what sessions add during the day.
@@ -328,7 +327,7 @@ def _in_repository(root: Path, anchor: str) -> bool:
     if path.exists():
         return True
     try:
-        seen = subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"HEAD:{anchor}"], capture_output=True)
+        seen = subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"HEAD:{anchor}"], capture_output=True, check=False)
     except OSError:
         return False
     return seen.returncode == 0
@@ -380,7 +379,7 @@ def key(project: str) -> str:
 
 def render(report: DreamReport) -> str:
     """The report as Markdown, for a person to read in the morning."""
-    lines = [f"# Dream report", "", f"{report.sessions} sessions read, ${report.cost_usd:.2f} of model use."]
+    lines = ["# Dream report", "", f"{report.sessions} sessions read, ${report.cost_usd:.2f} of model use."]
     for session_id, reason in report.failures:
         lines.append(f"- Could not read {session_id[:8]}: {reason}")
     for project in report.projects:

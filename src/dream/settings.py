@@ -37,7 +37,7 @@ def load_settings(env: Mapping[str, str], home: Path) -> Settings:
         raise ValueError(f"{file}: exclude must be a list of project folders")
     model = chosen.get("model", "sonnet")
     if not isinstance(model, str):
-        raise ValueError(f"{file}: model must be a model name")
+        raise ValueError(f"{file}: model must be a model name")  # noqa: TRY004 the command line reports every settings fault as a ValueError
     return Settings(
         transcripts=_folder(env, "CLAUDE_CONFIG_DIR", home / ".claude") / "projects",
         archive=data / "archive.db",

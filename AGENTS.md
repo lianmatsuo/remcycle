@@ -10,7 +10,7 @@ remcycle is two programs in one clone: the `dream` command (`src/dream`, Python,
 scripts/check
 ```
 
-It runs everything CI runs: the Python tests, then the mod's manifest, types and tests. A change is done when it passes. `scripts/check python` and `scripts/check mod` run one half.
+It runs everything CI runs: the Python lint and tests, then the mod's manifest, types and tests. A change is done when it passes. `scripts/check python` and `scripts/check mod` run one half.
 
 In the pull request, say what you ran and what it printed. If part of the gate could not run, say which part.
 

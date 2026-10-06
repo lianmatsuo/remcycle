@@ -11,7 +11,6 @@ from dream.dreaming import GLOBAL, key, known
 from dream.memory import INDEX, INDEX_BYTE_LIMIT, INDEX_LINE_LIMIT, MemoryStore
 from dream.mirror import Mirror
 
-
 _PACK_ROOM = 4_000
 """Characters of learned statements a new session is handed. What does not fit is a search away."""
 

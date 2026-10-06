@@ -15,8 +15,8 @@ try:
 except ImportError:  # Windows has no fcntl, and there commands do not take turns.
     fcntl = None
 
-from dream.archive import NO_PROJECT, Archive, project_of
 from dream import outside, review
+from dream.archive import NO_PROJECT, Archive, project_of
 from dream.dreaming import GLOBAL, dream, key, publish_project, render, review_project
 from dream.extract import ClaudeCode
 from dream.gate import JUDGE_SCHEMA, JUDGE_SYSTEM, judge_with
@@ -138,7 +138,7 @@ def _run(archive: Archive, args: argparse.Namespace) -> int:
         limit=args.limit,
         progress=lambda line: print(line, flush=True),
     )
-    written = args.reports / f"{datetime.now():%Y-%m-%d-%H%M%S}.md"
+    written = args.reports / f"{datetime.now().astimezone():%Y-%m-%d-%H%M%S}.md"
     written.parent.mkdir(parents=True, exist_ok=True)
     written.write_text(render(report))
     print(render(report))

@@ -348,7 +348,7 @@ SCHEMA = {
                 "required": [
                     "slot", "type", "scope", "statement", "why", "provenance",
                     "first_turn", "last_turn", "quote", "anchor", "asks", "topic",
-                ],  # fmt: skip
+                ],
                 "properties": {
                     "slot": _TEXT,
                     "type": {"type": "string", "enum": [t.value for t in ClaimType]},
@@ -442,6 +442,7 @@ class ClaudeCode:
                 timeout=self._timeout,
                 cwd=tempfile.gettempdir(),
                 env=plain,
+                check=False,
             )
         except (OSError, subprocess.TimeoutExpired) as e:
             raise ExtractionError(f"could not run Claude Code: {e}") from e

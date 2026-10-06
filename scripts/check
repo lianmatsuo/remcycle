@@ -2,7 +2,7 @@
 # The gate: what has to pass before a change is done. CI runs this same file.
 #
 #   scripts/check          everything
-#   scripts/check python   the dream command and its tests
+#   scripts/check python   the dream command: lint and tests
 #   scripts/check mod      the Claude Code mod: manifest, types and tests
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -16,6 +16,7 @@ step() {
 }
 
 check_python() {
+  step "python lint" uv run --locked ruff check
   step "python tests" uv run --locked pytest -q
 }
 

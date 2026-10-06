@@ -641,12 +641,14 @@ def _pointer(evidence: Evidence) -> list:
 
 def _memory_file(claim: Claim) -> str:
     parts = [
-        "---\n"
-        f"name: {claim.slot}\n"
-        f"description: {json.dumps(claim.statement, ensure_ascii=False)}\n"
-        "metadata:\n"
-        f"  type: {_BUILT_IN_TYPE[claim.type]}\n"
-        "---\n",
+        (
+            "---\n"
+            f"name: {claim.slot}\n"
+            f"description: {json.dumps(claim.statement, ensure_ascii=False)}\n"
+            "metadata:\n"
+            f"  type: {_BUILT_IN_TYPE[claim.type]}\n"
+            "---\n"
+        ),
         claim.statement + "\n",
     ]
     if claim.why:
