@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# The gate: what has to pass before a change is done. CI runs this same file.
+#
+#   scripts/check          everything
+#   scripts/check python   the dream command and its tests
+#   scripts/check mod      the Claude Code mod: manifest, types and tests
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+TYPESCRIPT=7.0.2
+
+step() {
+  printf '\n== %s\n' "$1"
+  shift
+  "$@"
+}
+
+check_python() {
+  step "python tests" uv run --locked pytest -q
+}
+
+check_mod() {
+  if ! command -v claude >/dev/null; then
+    echo "The mod's checks run inside Claude Code, and no claude command is on the path." >&2
+    echo "Install Claude Code, or run: scripts/check python" >&2
+    exit 1
+  fi
+  export CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1
+  step "mod manifest" claude plugin validate mod
+  # Written by a headless session that needs no sign-in. The person's own settings stay out of it,
+  # so their plugins' session hooks do not run. Beside the declarations it writes the tools of
+  # their connectors and the contracts of their plugins, which mod/tsconfig.json leaves out.
+  step "mod type declarations, from the installed Claude Code" \
+    env -u CLAUDE_CODE_PLUGIN_DIRS claude --setting-sources "" --no-session-persistence -p "/plugin-types mod/.claude/types" </dev/null
+  step "mod types" pnpm --package="typescript@$TYPESCRIPT" dlx tsc -p mod/tsconfig.json
+  step "mod tests" claude plugin test mod
+}
+
+case "${1:-all}" in
+  all)
+    check_python
+    check_mod
+    ;;
+  python) check_python ;;
+  mod) check_mod ;;
+  *)
+    echo "usage: scripts/check [python|mod]" >&2
+    exit 2
+    ;;
+esac
+
+printf '\nAll checks passed.\n'
