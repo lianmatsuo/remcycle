@@ -10,7 +10,7 @@ from dream.dreaming import GLOBAL, key
 from dream.extract import Thread
 from dream.memory import MemoryStore
 from dream.mirror import Mirror
-from dream.reconcile import Add
+from dream.reconcile import Add, Review
 from support import assistant_text, human, put_session
 
 
@@ -150,6 +150,21 @@ def test_a_memory_that_a_search_brings_up_is_counted_as_looked_up(tmp_path, caps
     answered = capsys.readouterr().out
     assert "package-manager" not in answered and "lockfile (words)" in answered
     assert main(["note-read", str(theirs), "--memory", str(memory), "--db", str(tmp_path / "archive.db")]) == 0
+
+
+def test_the_queue_lists_each_question_once_while_the_dream_is_at_work_on_a_copy(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no-settings"))
+    memory = tmp_path / "memory"
+    said = Claim("package-manager", ClaimType.PREFERENCE, Scope.PROJECT, "Use pnpm for JS projects.", "", Provenance.HUMAN,
+                 Evidence("7f3a9c2e-1b4d-4e6f-8a90-123456789abc", 3, 4), "2026-10-02T09:00:00Z")
+    mirror = Mirror(memory / "-work-shop")
+    mirror.sync(None, "/work/shop")
+    MemoryStore(mirror.stage()).apply([Add(said), Review("package-manager", "it looks dated: the repo moved to bun")])
+    mirror.accept("dream: 1 sessions")
+    mirror.stage()
+
+    assert main(["queue", "--memory", str(memory), "--db", str(tmp_path / "archive.db")]) == 0
+    assert capsys.readouterr().out.count("package-manager") == 1
 
 
 def test_ingest_says_how_many_sessions_the_dream_has_not_read(tmp_path, capsys, monkeypatch):

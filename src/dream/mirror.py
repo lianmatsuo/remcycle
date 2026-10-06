@@ -8,6 +8,7 @@ every accepted change is in its history.
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -23,6 +24,7 @@ class Mirror:
     def __init__(self, folder: Path) -> None:
         self.folder = folder
         self.staging = folder.with_name(folder.name + STAGED)
+        self._retired = folder.with_name(folder.name + ".retired")
         self._synced_file = folder / SIDE / "synced.json"
 
     def sync(self, live: Path | None, project: str | None = None) -> None:
@@ -31,6 +33,7 @@ class Mirror:
         A memory a session edited or deleted loses what remcycle recorded about it,
         because that record described text which is no longer there.
         """
+        self._finish_accept()
         (self.folder / SIDE).mkdir(parents=True, exist_ok=True)
         if not (self.folder / ".git").exists():
             self._git("init", "-q")
@@ -58,19 +61,34 @@ class Mirror:
 
     def stage(self) -> Path:
         """A fresh copy to change. The mirror itself stays as it is until `accept`."""
+        self._finish_accept()
         if self.staging.exists():
             shutil.rmtree(self.staging)
-        shutil.copytree(self.folder, self.staging, ignore=shutil.ignore_patterns(".git"))
+        # A writer that was killed leaves the file it was still writing. It is not part of the memory.
+        shutil.copytree(self.folder, self.staging, ignore=shutil.ignore_patterns(".git", "*.new"))
         return self.staging
 
     def accept(self, message: str) -> None:
-        """Make the staged copy the mirror's content and record it in history."""
-        for item in self.folder.iterdir():
-            if item.name == ".git":
-                continue
-            shutil.rmtree(item) if item.is_dir() else item.unlink()
-        shutil.copytree(self.staging, self.folder, dirs_exist_ok=True)
+        """Make the staged copy the mirror's content and record it in history.
+
+        The copy takes the mirror's place whole, by renaming folders, so a reader finds the old
+        content or the new and never part of one. An accept that is cut short is finished by the
+        next command that works on the mirror.
+        """
+        os.rename(self.folder / ".git", self.staging / ".git")
+        self._finish_accept()
         self._commit(message)
+
+    def _finish_accept(self) -> None:
+        """Put the staged copy in the mirror's place, if an accept got as far as giving it the history."""
+        if (self.staging / ".git").exists():
+            if self.folder.exists():
+                if self._retired.exists():
+                    shutil.rmtree(self._retired)
+                os.rename(self.folder, self._retired)
+            os.rename(self.staging, self.folder)
+        if self._retired.exists():
+            shutil.rmtree(self._retired)
 
     def publish(self, live: Path, backup: Path | None = None) -> None:
         """Write the mirror's memory files to live memory, unless live changed since the sync.

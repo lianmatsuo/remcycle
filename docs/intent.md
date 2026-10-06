@@ -106,7 +106,7 @@ Each is dated 2026-10-05 unless noted.
 
 **macOS and Linux first.** Windows is untested.
 
-**The dream works on its own copy of memory.** Rejected: making the folder Claude Code loads a git repository and working on a branch of it. A copy needs no answer to whether Claude Code tolerates a repository there, cannot leave live memory half-changed, and lets the dream commit as itself without waiting on the person's signing key.
+**The dream works on its own copy of memory.** Rejected: making the folder Claude Code loads a git repository and working on a branch of it. A copy needs no answer to whether Claude Code tolerates a repository there, cannot leave live memory half-changed, and lets the dream commit as itself without waiting on the person's signing key. The accepted copy takes the mirror's place by renaming folders, so a reader finds the old content or the new, and an accept that is cut short is finished by the next command. Rejected: clearing the mirror and copying the files in, which the first version did. A kill partway through left half a copy, and the next run recorded the rest as deleted.
 
 **Every claim must quote the session.** Rejected: trusting the model's own account of who said what. Code checks the quote against the cited turns and sets provenance from who wrote them. On the first real session this threw out one claim of four and kept two of the assistant's own conclusions from being stored as decisions.
 

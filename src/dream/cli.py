@@ -231,7 +231,8 @@ def _publish(archive: Archive, args: argparse.Namespace) -> int:
 
 
 def _queue(archive: Archive, args: argparse.Namespace) -> int:
-    folders = sorted(path for path in args.memory.iterdir() if path.is_dir()) if args.memory.is_dir() else []
+    # A copy of memory is a folder with its own history. The folder the dream works in beside it has none.
+    folders = sorted(path for path in args.memory.iterdir() if (path / ".git").is_dir()) if args.memory.is_dir() else []
     waiting = [(folder.name, item) for folder in folders for item in MemoryStore(folder).queue()]
     if not waiting:
         print("nothing is waiting for you")

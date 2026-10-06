@@ -1,3 +1,5 @@
+import os
+import shutil
 from datetime import UTC, datetime
 
 import pytest
@@ -330,6 +332,56 @@ def test_a_look_up_counted_while_the_dream_is_at_work_is_kept(tmp_path):
 
     assert MemoryStore(mirror.folder).reads("package-manager") == 1
     assert MemoryStore(mirror.folder).needed("package-manager") == 3
+
+
+@pytest.mark.parametrize(
+    ("dies_at", "holds"),
+    [
+        ("the first rename", {"package-manager"}),
+        ("the second rename", {"package-manager", "ci-runner"}),
+        ("the third rename", {"package-manager", "ci-runner"}),
+        ("clearing the old content", {"package-manager", "ci-runner"}),
+    ],
+)
+def test_an_accept_that_is_cut_short_leaves_a_whole_copy_and_is_finished_by_the_next_use(tmp_path, monkeypatch, dies_at, holds):
+    def said(slot, statement):
+        return Claim(slot, ClaimType.PREFERENCE, Scope.PROJECT, statement, "", Provenance.HUMAN, Evidence("s-first", 0, 0), "2026-10-01T09:00:00Z")
+
+    mirror = Mirror(tmp_path / "memory" / "-work-shop")
+    mirror.sync(None, PROJECT)
+    MemoryStore(mirror.stage()).apply([Add(said("package-manager", "Use pnpm for JS projects."))])
+    mirror.accept("dream: 1 sessions")
+    MemoryStore(mirror.stage()).apply([Add(said("ci-runner", "CI is self-hosted."))])
+
+    renames = []
+    rename, rmtree = os.rename, shutil.rmtree
+
+    def dying_rename(source, target):
+        renames.append(source)
+        if dies_at == f"the {['first', 'second', 'third'][len(renames) - 1]} rename":
+            raise OSError("the process was killed")
+        rename(source, target)
+
+    def dying_rmtree(folder, *args, **kwargs):
+        if dies_at == "clearing the old content":
+            raise OSError("the process was killed")
+        rmtree(folder, *args, **kwargs)
+
+    monkeypatch.setattr(os, "rename", dying_rename)
+    monkeypatch.setattr(shutil, "rmtree", dying_rmtree)
+    with pytest.raises(OSError, match="killed"):
+        mirror.accept("dream: 1 sessions")
+    monkeypatch.undo()
+
+    # Whatever the moment, a reader finds a whole copy: the old one or the new one, never part of one.
+    assert set(MemoryStore(mirror.folder).entries()) in ({"package-manager"}, {"package-manager", "ci-runner"}, set())
+
+    after = Mirror(tmp_path / "memory" / "-work-shop")
+    after.sync(None, PROJECT)
+
+    assert set(MemoryStore(after.folder).entries()) == holds
+    assert after.last("sync") is not None
+    assert not (tmp_path / "memory" / "-work-shop.retired").exists()
 
 
 def test_status_lists_what_the_dream_holds_for_a_project_and_what_waits_on_the_person(archive, claude, tmp_path):
