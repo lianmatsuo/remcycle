@@ -51,7 +51,7 @@ def held(file: Path, wait: float | None = None) -> Iterator[None]:
     many seconds, after which it raises Busy.
     """
     file.parent.mkdir(parents=True, exist_ok=True)
-    with file.open("a", encoding="utf-8") as lock:
+    with file.open("a", encoding="utf-8", newline="\n") as lock:
         deadline = None if wait is None else time.monotonic() + wait
         while not _take(lock.fileno()):
             if deadline is not None and time.monotonic() >= deadline:

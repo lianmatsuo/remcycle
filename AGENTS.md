@@ -27,7 +27,7 @@ The machine you are on may hold its owner's real archive and memory, under `~/.l
 - Write the failing test first, at one of the seams the README lists under Development, through the public interface. Watch it fail for the reason you expect, then make it pass.
 - Before changing how memory is written, how a claim is accepted, or what is sent to the model, read `docs/intent.md`. It records each decision beside the alternative that was rejected. A change that reverses one updates that file in the same pull request.
 - Python: dataclasses for structured data, `pathlib` for paths, `raise ... from e`, never a bare `except`.
-- The command runs on macOS, Linux and Windows. Name the encoding wherever text is read or written, and the line ends on a write: `encoding="utf-8"`, `newline="\n"`. The gate fails a call that leaves the encoding to the system. What the systems do differently is in `lock.py`, `disk.py` and `daily.py`.
+- The command runs on macOS, Linux and Windows. Name the encoding wherever text is read or written, and the line ends on a write: `encoding="utf-8"`, `newline="\n"`. The gate fails a call that leaves the encoding to the system. Code that only one system needs sits behind a check of `sys.platform`.
 - Comments and docs say what the code does now, and why where a decision was made. How the change came about goes in the pull request.
 - Docs are in plain words, for someone who has never seen the code, and state only what was checked.
 - `README.md`, `docs/reference.md` and `docs/setup-with-claude.md` describe the commands. A change to a command's flags or output changes them in the same pull request.

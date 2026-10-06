@@ -89,13 +89,13 @@ else:
 
 
 def start(argv: list[str], log: Path, env: Mapping[str, str] | None = None) -> int:
-    """Run argv cut loose from this process, so it carries on after the Claude Code session that started it ends.
+    """Run argv cut loose from this process, and return the new process's id.
 
-    Returns the new process's id.
+    The daily dream is started this way so as to outlast the Claude Code session that starts it.
     """
     log.parent.mkdir(parents=True, exist_ok=True)
     loose = {name: value for name, value in (os.environ if env is None else env).items() if name not in _SESSION_TIES}
-    with log.open("a", encoding="utf-8") as out:
+    with log.open("a", encoding="utf-8", newline="\n") as out:
         process = subprocess.Popen(
             argv, stdin=subprocess.DEVNULL, stdout=out, stderr=out, cwd=log.parent, env=loose, **_CUT_LOOSE
         )
