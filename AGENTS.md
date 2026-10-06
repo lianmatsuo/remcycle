@@ -19,7 +19,7 @@ In the pull request, say what you ran and what it printed. If part of the gate c
 The machine you are on may hold its owner's real archive and memory, under `~/.local/share/remcycle` and `~/.claude`. Development works on copies and throwaway folders.
 
 - Try a change through the tests. To run the command by hand, point it at temporary folders by setting `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `CLAUDE_CONFIG_DIR`.
-- `dream run` and `dream review` spend the owner's model usage. `dream publish --yes` and `dream purge --yes` change or delete what the owner keeps. Run these against the real folders only when the owner asks for that command by name.
+- `dream run` and `dream review` spend the owner's model usage. `dream publish --yes` and `dream purge --yes` change or delete what the owner keeps, and `dream resolve`, `dream close` and `dream reopen` change their memory at once, with no `--yes` to stop them. Run these against the real folders only when the owner asks for that command by name.
 - The tests stand in for the model, so none of them spends usage. Keep it that way.
 
 ## How changes are made
@@ -39,6 +39,6 @@ The machine you are on may hold its owner's real archive and memory, under `~/.l
 
 ## Pull requests
 
-Branch from `main` and open a pull request. CI runs the gate on Linux and macOS, on the oldest and newest Python remcycle supports, and against the Claude Code version the mod was written against. Merge when the `gate` result is green.
+Branch from `main` and open a pull request. CI runs the Python half of the gate on Linux and macOS, on the oldest and newest Python remcycle supports, and the mod's half on Linux, against the Claude Code version the mod was written against. Merge when the `gate` result is green.
 
 A commit subject says what the change does, in plain words: "Say how many sessions are unread", not "Update cli.py".

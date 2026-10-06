@@ -25,8 +25,9 @@ jobs:
         include:
           - { os: ubuntu-24.04, python: "3.12" }
           - { os: ubuntu-24.04, python: "3.14" }
-          - { os: macos-14, python: "3.12" }
+          - { os: macos-15, python: "3.12" }
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     env:
       UV_PYTHON: ${{ matrix.python }}
     steps:
@@ -38,6 +39,7 @@ jobs:
 
   mod:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     env:
       # A change is checked against the Claude Code the mod was written against. The weekly run
       # uses the newest, because the mod API is early access and can change between releases.
@@ -60,6 +62,7 @@ jobs:
     if: always()
     needs: [python, mod]
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - run: test "$RESULTS" = "success success"
         env:

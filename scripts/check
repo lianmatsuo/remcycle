@@ -5,6 +5,8 @@
 #   scripts/check python   the dream command: lint and tests
 #   scripts/check mod      the Claude Code mod: manifest, types and tests
 set -euo pipefail
+# A CDPATH from the caller's shell would send a relative cd somewhere else.
+unset CDPATH
 cd "$(dirname "$0")/.."
 
 TYPESCRIPT=7.0.2
@@ -31,6 +33,9 @@ check_mod() {
   # Written by a headless session that needs no sign-in. The person's own settings stay out of it,
   # so their plugins' session hooks do not run. Beside the declarations it writes the tools of
   # their connectors and the contracts of their plugins, which mod/tsconfig.json leaves out.
+  # The command that writes them exits 0 even when it wrote nothing, so an old copy is cleared
+  # first: without a fresh one the typecheck fails, where it would have passed against the old.
+  rm -f mod/.claude/types/claude-code.d.ts
   step "mod type declarations, from the installed Claude Code" \
     env -u CLAUDE_CODE_PLUGIN_DIRS claude --setting-sources "" --no-session-persistence -p "/plugin-types mod/.claude/types" </dev/null
   step "mod types" pnpm --package="typescript@$TYPESCRIPT" dlx tsc -p mod/tsconfig.json
