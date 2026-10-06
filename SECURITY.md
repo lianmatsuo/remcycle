@@ -18,4 +18,4 @@ remcycle has one maintainer, so an answer can take a few days.
 ## What is already known
 
 - Redaction is pattern matching, and a secret with no recognisable shape is stored as written. [What the archive holds, and what protects it](docs/reference.md#what-the-archive-holds-and-what-protects-it) says what is covered.
-- The dream sends the prose of your sessions to the model, through your own Claude Code. That is how it works. The first dream and the nightly run are both steps you turn on.
+- The dream sends the prose of your sessions and, for a project with unfinished work, the messages of its recent commits and the titles and descriptions of its merged pull requests to the model, through your own Claude Code. That is how it works. The first dream and the nightly run are both steps you turn on.

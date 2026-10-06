@@ -97,7 +97,7 @@ claude plugin marketplace add CLONE
 claude plugin install remcycle@remcycle
 ```
 
-The first line registers the clone as a place to install plugins from, and the second installs the mod from it. `claude plugin list` then shows `remcycle@remcycle` as enabled and read from `CLONE/mod`. Where it is listed already, leave it as it is.
+The first line registers the clone as a place to install plugins from, and the second installs the mod from it. `claude plugin list` then shows `remcycle@remcycle` as enabled. Where it is listed already, leave it as it is.
 
 **Confirm.** Done when this prints `WORKING`:
 
@@ -108,7 +108,7 @@ claude -p 'Call the tool mcp__remcycle__recall with the query "setup". Then repl
 - `UNREACHABLE`: the mod loaded and Claude Code could not run `dream`. Step 2 has the fix.
 - `MISSING`: the mod did not load. `claude plugin list` says whether it is installed and enabled, and `claude --version` whether this Claude Code is new enough. Report both.
 
-On an answer you cannot put right, take the mod out again with `claude plugin uninstall remcycle@remcycle` and report.
+On an answer you cannot put right, take the mod out again with `claude plugin marketplace remove remcycle`, which also uninstalls it, and report.
 
 The mod loads when a session starts, so the person sees it in the next session they open. In a session that is already open, `/reload-plugins` loads it. The desktop app carries its own copy of Claude Code, and mods work there from 2.1.286.
 

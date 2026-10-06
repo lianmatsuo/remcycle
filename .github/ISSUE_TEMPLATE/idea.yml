@@ -1,6 +1,6 @@
 name: An idea
 description: Something remcycle could do, or do differently.
-labels: [idea]
+labels: [enhancement]
 body:
   - type: textarea
     id: problem

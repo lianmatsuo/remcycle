@@ -16,13 +16,13 @@ claude plugin marketplace add lianmatsuo/remcycle
 claude plugin install remcycle@remcycle
 ```
 
-The first line puts the `dream` command on your `PATH`. The other two install the mod as a Claude Code plugin, and it loads in the next session you start. To update later, run `uv tool upgrade remcycle` and `claude plugin update remcycle@remcycle`.
+The first line puts the `dream` command on your `PATH`. The other two install the mod as a Claude Code plugin, and it loads in the next session you start. To update later, run `uv tool upgrade remcycle` and `claude plugin update remcycle@remcycle`. The first follows the repository. The second brings a new copy of the mod only when a release has raised its version, and the command stays compatible with the last released mod in between.
 
 From a clone, which is what the setup guide does and what you want for working on remcycle:
 
 ```bash
 uv tool install --editable .
-claude plugin marketplace add .
+claude plugin marketplace add ./
 claude plugin install remcycle@remcycle
 ```
 
@@ -146,7 +146,7 @@ The archive stores what you typed into every session, word for word. Three thing
 - **Excluded projects.** Sessions from a listed project, or from anything inside it, are never archived. Sessions archived before the project was listed stay until you remove them: `dream purge` lists them and `dream purge --yes` deletes them and rewrites the file so their text is gone from it. Memory the dream already drew from them, under `~/.local/share/remcycle/memory/`, is not removed.
 - **File permissions.** The archive file is readable only by your user.
 
-The archive is one local SQLite file and ingest sends nothing anywhere. The dream is different: it sends the prose of each unread session, after redaction, to the model through your own Claude Code, as any session would.
+The archive is one local SQLite file and ingest sends nothing anywhere. The dream is different: it sends the prose of each unread session, after redaction, to the model through your own Claude Code. For a project with unfinished work it also sends the messages of that repository's recent commits and the titles and descriptions of its merged pull requests, redacted the same way. All of it goes as any session would.
 
 ## Settings
 
@@ -166,7 +166,7 @@ Locations follow the environment: `CLAUDE_CONFIG_DIR` for Claude Code's files, `
 
 Each part comes out by itself.
 
-- **The mod.** `claude plugin uninstall remcycle@remcycle`, then `claude plugin marketplace remove remcycle`.
+- **The mod.** `claude plugin marketplace remove remcycle`, which also uninstalls it.
 - **The nightly run.** Delete the `remcycle-dream` task in the desktop app, or the `dream run` line in `crontab -e`.
 - **The command.** `uv tool uninstall remcycle`.
 - **What it kept.** `~/.local/share/remcycle` holds the archive, the dream's copy of memory, the reports and the backups. `~/.config/remcycle` holds the settings. Deleting both removes everything remcycle stored.

@@ -25,7 +25,7 @@ It needs Claude Code 2.1.287 or later in the terminal, or 2.1.286 in the desktop
 
 A mod runs with your permissions. This one starts one program, `dream`, and makes no network requests. `claude plugin validate` on this folder lists every event it handles and every call it makes.
 
-The `dream` command keeps everything on your machine. The one thing that leaves is the prose of your sessions, which the nightly dream sends to the model through your own Claude Code once you have turned that on.
+The `dream` command keeps everything on your machine. What leaves is what the nightly dream sends to the model through your own Claude Code, once you have turned that on: the prose of your sessions and, for a project with unfinished work, the messages of its recent commits and the titles and descriptions of its merged pull requests.
 
 ## More
 

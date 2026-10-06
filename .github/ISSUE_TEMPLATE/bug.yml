@@ -35,6 +35,6 @@ body:
     id: versions
     attributes:
       label: Versions
-      description: What `claude --version` prints, your operating system, and the remcycle commit (`git rev-parse --short HEAD` in the clone).
+      description: "What `claude --version` prints, your operating system, and which remcycle you have: the line `uv tool list` prints for it, or `git rev-parse --short HEAD` in a clone."
     validations:
       required: true
