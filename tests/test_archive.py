@@ -267,6 +267,17 @@ def test_on_windows_a_folder_is_one_project_however_its_path_is_written(root, ar
     assert found(archive.search("vault unseal", project=str(tmp_path / "work").upper().replace("\\", "/"))) == [("s-shop", 0)]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows would go looking for the machine these paths name")
+def test_a_project_on_a_network_share_is_one_folder_however_its_path_is_written(root, archive, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    put_session(root, "s-private", [human("rotate the vault unseal keys", 0)], cwd="\\\\nas\\share\\private-client\\api")
+    put_session(root, "s-shop", [human("rotate the vault unseal keys in the demo", 0)], cwd="\\\\nas\\share\\shop")
+
+    assert archive.ingest(root, exclude=["//NAS/share/private-client"]).excluded == 1
+    assert found(archive.search("vault unseal", project="//nas/SHARE")) == [("s-shop", 0)]
+    assert project_of("//nas/share/shop/.claude/worktrees/fix") == "\\\\nas\\share\\shop"
+
+
 def test_sessions_started_without_a_folder_share_one_group(root, archive):
     scratch = "/Users/someone/Library/Application Support/Claude/scratch-workspaces/aa11/bb22/scratch-2026-10-0{}"
     put_session(root, "s-a", [human("sketch a logo idea", 0)], cwd=scratch.format(1))

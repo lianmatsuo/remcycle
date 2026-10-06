@@ -68,7 +68,8 @@ END;
 _CLAUDE_WORKTREE = re.compile(r"[\\/]\.claude[\\/]worktrees[\\/].*")
 _LINKED_WORKTREE = re.compile(r"gitdir:\s*(.*)[\\/]\.git[\\/]worktrees[\\/][^\\/]+\s*$")
 _SCRATCH = re.compile(r"[\\/]scratch-workspaces[\\/]")
-_DRIVE = re.compile(r"[A-Za-z]:[\\/]")
+# How a Windows path starts: with a drive, or with the two slashes of a network share.
+_WINDOWS = re.compile(r"[A-Za-z]:[\\/]|[\\/]{2}[^\\/]")
 
 
 NO_PROJECT = "(no project)"
@@ -100,7 +101,7 @@ def has_folder(project: str) -> bool:
 
 def _spelled(folder: str) -> str:
     """A folder's path spelled one way. Windows takes `c:/work` and `C:\\work` for the same folder."""
-    if not _DRIVE.match(folder):
+    if not _WINDOWS.match(folder):
         return folder
     return str(PureWindowsPath(folder[0].upper() + folder[1:]))
 
@@ -119,7 +120,7 @@ def _within(project: str | None, parents: Iterable[str]) -> bool:
 def _compared(folder: str) -> str:
     """A folder's path as it is set against another. Windows takes `C:\\Work` and `C:\\work` for the same folder."""
     spelled = _spelled(folder)
-    return spelled.casefold() if _DRIVE.match(spelled) else spelled
+    return spelled.casefold() if _WINDOWS.match(spelled) else spelled
 
 
 @dataclass(frozen=True)
