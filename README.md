@@ -1,6 +1,6 @@
 # remcycle
 
-Nightly memory for Claude Code, built from its own sessions.
+A Claude Code mod that gives it a nightly memory, built from its own sessions.
 
 Claude Code starts every session fresh, and the notes it keeps about your projects pile up until the old ones are wrong. remcycle keeps everything you and Claude said, and while you are away it reads the new sessions, keeps what you actually decided, and questions the rest. The next session starts knowing it.
 
@@ -18,6 +18,40 @@ flowchart LR
 ```
 
 [How it works](docs/how-it-works.md) explains each part in plain words, with pictures.
+
+## A mod, not a prompt
+
+A skill or an instructions file is text that Claude reads and may or may not act on. remcycle is a mod: code that runs inside Claude Code and changes what a session does.
+
+- **When a conversation starts**, it hands Claude what you have said and what earlier sessions left unfinished.
+- **It gives Claude three tools.** `recall` searches past sessions, `close_thread` marks unfinished work done, and `settle_memory` applies a ruling the two of you reached.
+- **It adds a panel.** `/remcycle` shows what it holds, and lets you rule on what it doubts.
+- **When a session ends**, it files what was said.
+
+Behind the mod is a program of its own, the `dream` command, with an archive, a nightly run, and checks that every change to memory has to pass.
+
+```mermaid
+flowchart TB
+    subgraph inside["Inside Claude Code"]
+        session(["Your session"])
+        mod["The remcycle mod<br/>hooks, three tools, a panel"]
+        own[("Claude Code's<br/>own memory")]
+    end
+    subgraph machine["On your machine"]
+        dream{{"The dream command"}}
+        archive[("Archive<br/>every session")]
+        copy[("The dream's copy<br/>of memory")]
+        night(["Nightly run"])
+    end
+    model(["The model, through<br/>your own Claude Code"])
+    session <--> mod
+    mod -- "asks, and files sessions" --> dream
+    night --> dream
+    dream <--> archive
+    dream <--> copy
+    dream -- "new sessions" --> model
+    dream -. "only when you publish" .-> own
+```
 
 ## What you get
 
