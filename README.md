@@ -66,16 +66,14 @@ remcycle is an independent project and is not affiliated with or endorsed by Ant
 ## Development
 
 ```bash
-uv run pytest
+scripts/check
 ```
 
-The Python tests sit at these seams: transcript parsing, the archive against a real SQLite file, settings, reconciliation as pure functions, the memory store against folders in Claude Code's format, extraction through a stand-in for the model, the gate, and whole dream runs against temporary folders. They run on macOS and Linux for every push.
+That runs everything CI runs: the Python tests, then the mod's manifest, types and tests. [CONTRIBUTING.md](CONTRIBUTING.md) says how to start, and [AGENTS.md](AGENTS.md) is the working guide for people and coding agents alike.
 
-```bash
-CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1 claude plugin test mod
-```
+The Python tests sit at these seams: transcript parsing, the archive against a real SQLite file, settings, reconciliation as pure functions, the memory store against folders in Claude Code's format, extraction through a stand-in for the model, the gate, and whole dream runs against temporary folders.
 
-The mod's tests run in Claude Code's own plugin test kit, so they need Claude Code installed and are not part of the automatic run.
+The mod's tests run in Claude Code's own plugin test kit, so that half of the check needs Claude Code installed.
 
 ## Licence
 
