@@ -132,6 +132,17 @@ def test_sessions_from_an_excluded_project_are_never_archived(root, archive):
     assert found(archive.search("vault unseal", project=None)) == [("s-open", 0)]
 
 
+def test_a_folder_excluded_with_a_closing_slash_is_left_out_like_any_other(root, archive):
+    put_session(root, "s-root", [human("rotate the vault unseal keys", 0)], cwd="/work/private-client")
+    put_session(root, "s-inside", [human("rotate the vault unseal keys again", 0)], cwd="/work/private-client/api")
+    put_session(root, "s-beside", [human("rotate the vault unseal keys in the demo", 0)], cwd="/work/private-client-demo")
+
+    report = archive.ingest(root, exclude=["/work/private-client/"])
+
+    assert report.excluded == 2
+    assert found(archive.search("vault unseal", project=None)) == [("s-beside", 0)]
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows keeps who may read a file in a list of its own, not in these bits")
 def test_the_archive_file_is_readable_only_by_its_owner(tmp_path):
     path = tmp_path / "data" / "archive.db"

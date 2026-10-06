@@ -109,8 +109,9 @@ def _within(project: str | None, parents: Iterable[str]) -> bool:
     """Whether the project is one of `parents` or lies inside one."""
     here = _compared(project or "")
     for parent in map(_compared, parents):
+        # A parent may be written with a closing slash, and names the same folder without it.
         inside = parent.rstrip("/\\")
-        if here == parent or here.startswith((inside + "/", inside + "\\")):
+        if here == (inside or parent) or here.startswith((inside + "/", inside + "\\")):
             return True
     return False
 
