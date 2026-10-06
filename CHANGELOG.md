@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.3.0
+
+- **remcycle is on PyPI.** `uv tool install remcycle` installs the `dream` command, and `uv tool upgrade remcycle` brings the latest release.
+- **The mod follows releases.** It is installed from the tag of the latest release, so `claude plugin update remcycle@remcycle` brings a release and nothing in between.
+- **`dream --version`** says which version of the command is installed.
+
+### Upgrading from 0.2.0 or earlier
+
+The command you have follows the repository, not releases. Replace it once, and update the mod:
+
+```bash
+uv tool install --reinstall remcycle
+claude plugin update remcycle@remcycle
+```
+
+If Claude set remcycle up for you from a folder such as `~/remcycle`, the mod was installed from that folder as well. Move it to the repository on GitHub, after which the folder can be deleted:
+
+```bash
+claude plugin marketplace remove remcycle
+claude plugin marketplace add lianmatsuo/remcycle
+claude plugin install remcycle@remcycle
+```
+
 ## 0.2.0
 
 - **The daily dream is on by default.** Once a day, the first session after 20 hours starts the dream in the background, with no scheduler to set up. The panel asks once how much history it should read, shows when it last ran and why it went wrong if it did, and turns it off. `dream daily` makes the same changes from the command line.

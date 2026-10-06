@@ -11,7 +11,7 @@
         "source": "git-subdir",
         "url": "https://github.com/lianmatsuo/remcycle.git",
         "path": "mod",
-        "ref": "v0.2.0"
+        "ref": "v0.3.0"
       },
       "description": "Hands each session what the dream learned, lets Claude recall past sessions, and adds the /remcycle panel. Needs the dream command."
     }
