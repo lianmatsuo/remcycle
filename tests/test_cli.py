@@ -328,6 +328,43 @@ def test_a_session_starts_the_daily_dream_in_the_background_once_a_day_when_ther
     assert started == [[sys.executable, "-P", "-m", "dream.cli", "daily", "--background", *scope]] * 2
 
 
+def test_a_daily_dream_started_before_a_history_is_chosen_says_how_many_earlier_sessions_wait(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setattr(dream.daily, "start", lambda argv, log: 999_999)
+    clock = {"now": "2026-10-01T08:00:00+00:00"}
+    monkeypatch.setattr(dream.cli, "_now", lambda: clock["now"])
+    root, db = tmp_path / "projects", str(tmp_path / "archive.db")
+    scope = ["--db", db, "--root", str(root)]
+    choose = "choose how far back the daily dream reads, with /remcycle or `dream daily history`"
+
+    def session(session_id, at):
+        put_session(root, session_id, [human("use bun here", 0, timestamp=at)], cwd="/work/shop")
+        assert main(["ingest", *scope]) == 0
+
+    def daily(at):
+        clock["now"] = at
+        capsys.readouterr()
+        assert main(["daily", *scope]) == 0
+        return capsys.readouterr().out
+
+    session("s-old", "2026-09-28T09:00:00.000Z")
+    assert daily("2026-10-01T08:00:00+00:00") == "nothing new for the daily dream to read\n"
+
+    session("s-after", "2026-10-01T10:00:00.000Z")
+    assert daily("2026-10-01T12:00:00+00:00") == (
+        f"the daily dream started in the background: 1 session to read\n1 earlier session waits unread: {choose}\n"
+    )
+
+    session("s-older", "2026-09-20T09:00:00.000Z")
+    assert daily("2026-10-02T12:00:00+00:00") == (
+        f"the daily dream started in the background: 1 session to read\n2 earlier sessions wait unread: {choose}\n"
+    )
+
+    assert main(["daily", "history", "new"]) == 0
+    assert daily("2026-10-03T12:00:00+00:00") == "the daily dream started in the background: 1 session to read\n"
+
+
 def test_the_daily_dream_is_changed_in_the_settings_file_and_does_nothing_while_it_is_off(tmp_path, capsys, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))

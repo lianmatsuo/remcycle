@@ -376,11 +376,16 @@ def _daily(archive: Archive, args: argparse.Namespace) -> int:
         if not waiting:
             print("nothing new for the daily dream to read")
             return 0
+        # Until a history is chosen, sessions from before the daily dream began are left unread.
+        earlier = len(archive.awaiting_dream(None)) - len(waiting) if args.daily_history is None else 0
         # -P keeps the session's folder off the import path, so a project's own `dream` package is never run.
         background = [sys.executable, "-P", "-m", "dream.cli", "daily", "--background", "--db", str(args.db), "--root", str(args.root)]
         pid = daily.start(background, args.log)
         daily.save(args.state, replace(state, started=_now(), finished=None, failed=None, log=str(args.log), pid=pid))
     print(f"the daily dream started in the background: {len(waiting)} session{'' if len(waiting) == 1 else 's'} to read")
+    if earlier:
+        wait = "session waits" if earlier == 1 else "sessions wait"
+        print(f"{earlier} earlier {wait} unread: choose how far back the daily dream reads, with /remcycle or `dream daily history`")
     return 0
 
 
