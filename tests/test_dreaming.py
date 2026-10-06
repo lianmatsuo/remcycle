@@ -1,6 +1,7 @@
 import os
 import shutil
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -10,7 +11,7 @@ from dream.archive import Archive
 from dream.claims import Claim, ClaimType, Evidence, Provenance, Scope, Status
 from dream.dreaming import dream as run_dream
 from dream.dreaming import publish_project, read_ahead, review_project
-from dream.extract import ExtractionError, Reply
+from dream.extract import ExtractionError, Reply, Thread
 from dream.memory import MemoryStore
 from dream.mirror import Mirror
 from dream.outside import Finished, Witnessed
@@ -359,7 +360,8 @@ def test_an_accept_that_is_cut_short_leaves_a_whole_copy_and_is_finished_by_the_
 
     def dying_rename(source, target):
         renames.append(source)
-        if dies_at == f"the {dict(enumerate(['first', 'second', 'third'], 1)).get(len(renames))} rename":
+        nth = ("first", "second", "third", "a later")[min(len(renames), 4) - 1]
+        if dies_at == f"the {nth} rename":
             raise OSError("the process was killed")
         rename(source, target)
 
@@ -796,6 +798,44 @@ def test_an_accept_refused_while_a_reader_has_a_file_of_the_copy_open_is_made_on
     assert set(MemoryStore(mirror.folder).entries()) == {"package-manager"}
 
 
+SHOP_PNPM = Claim("package-manager", ClaimType.PREFERENCE, Scope.PROJECT, "Use pnpm for JS projects.", "", Provenance.HUMAN, Evidence("s-first", 0, 0), "2026-10-01T09:00:00Z")
+
+
+def refusing(monkeypatch, module, name, folder):
+    """Have `module.name` refuse the folder of that name, as Windows does while another program has a file in it open."""
+    real = getattr(module, name)
+
+    def held_open(source, *rest, **more):
+        if Path(source).name == folder:
+            raise PermissionError("another program has a file in the folder open")
+        return real(source, *rest, **more)
+
+    monkeypatch.setattr(dream.disk, "PATIENCE", 0.0)
+    monkeypatch.setattr(module, name, held_open)
+
+
+def test_an_accept_refused_for_good_leaves_the_copy_as_it_was_and_keeps_what_is_done_to_it_before_the_next(tmp_path, monkeypatch):
+    mirror = Mirror(tmp_path / "memory" / "-work-shop")
+    mirror.sync(None, PROJECT)
+    copy = MemoryStore(mirror.folder)
+    copy.note_threads([Thread("ci-cache", "CI cache for pnpm is not set up.", True, 4)], "s-first", "2026-10-01T09:00:00Z")
+    MemoryStore(mirror.stage()).apply([Add(SHOP_PNPM)])
+
+    refusing(monkeypatch, os, "rename", "-work-shop")
+    with pytest.raises(PermissionError):
+        mirror.accept("dream: 1 sessions")
+    monkeypatch.undo()
+
+    assert mirror.last("sync") is not None
+    assert set(copy.entries()) == set()
+    copy.close_thread("ci-cache", at="2026-10-02T09:00:00Z")  # as `dream close` does, before the next dream
+    MemoryStore(mirror.stage()).apply([Add(SHOP_PNPM)])
+    mirror.accept("dream: 1 sessions")
+
+    assert copy.threads("2026-10-02T10:00:00Z") == {}
+    assert set(copy.entries()) == {"package-manager"}
+
+
 def test_a_project_whose_copy_another_program_holds_open_waits_and_the_other_projects_are_dreamt(archive, claude, tmp_path, monkeypatch):
     pnpm_session(claude)
     put_session(
@@ -804,27 +844,46 @@ def test_a_project_whose_copy_another_program_holds_open_waits_and_the_other_pro
         [human("set up the js workspace", 0), assistant_text("I'll use npm.", 1), human("no, always use pnpm for JS projects here", 2)],
         cwd="/work/site",
     )
-    rename = os.rename
 
-    def held_open(source, target):
-        if os.path.basename(source) == "-work-shop":
-            raise PermissionError("another program has a file in the folder open")
-        rename(source, target)
+    refusing(monkeypatch, os, "rename", "-work-shop")
+    while_moving = dreamt(archive, claude, tmp_path, Model())
+    monkeypatch.undo()
+    refusing(monkeypatch, shutil, "rmtree", "-work-shop.staging")
+    while_clearing = dreamt(archive, claude, tmp_path, Model())
+    monkeypatch.undo()
 
-    monkeypatch.setattr(dream.disk, "PATIENCE", 0.0)
-    monkeypatch.setattr(os, "rename", held_open)
+    def shop(report):
+        return next(project for project in report.projects if project.project == PROJECT)
 
-    first = dreamt(archive, claude, tmp_path, Model())
-    second = dreamt(archive, claude, tmp_path, Model())
-
-    for report in (first, second):
-        shop = next(project for project in report.projects if project.project == PROJECT)
-        assert not shop.merged and "another program has it open" in shop.problems[0]
-    assert next(project for project in first.projects if project.project == "/work/site").merged
+    assert not shop(while_moving).merged and "could not be moved into place" in shop(while_moving).problems[0]
+    assert not shop(while_clearing).merged and "could not be made ready" in shop(while_clearing).problems[0]
+    assert next(project for project in while_moving.projects if project.project == "/work/site").merged
     assert [session.session_id for session in archive.awaiting_dream()] == ["s-pnpm"]
 
-    monkeypatch.undo()
     dreamt(archive, claude, tmp_path, Model())
 
     assert archive.awaiting_dream() == []
     assert "package-manager" in MemoryStore(tmp_path / "memory" / "-work-shop").entries()
+
+
+def test_what_a_session_said_for_every_project_is_not_lost_when_the_copy_for_all_cannot_take_it(archive, claude, tmp_path, monkeypatch):
+    pnpm_session(claude)
+
+    class SaidForAll(Model):
+        def __call__(self, prompt):
+            reply = super().__call__(prompt)
+            return Reply({**reply.data, "claims": [{**PNPM, "scope": "global"}]}, reply.cost_usd)
+
+    refusing(monkeypatch, os, "rename", dream.dreaming.key(dream.dreaming.GLOBAL))
+    report = dreamt(archive, claude, tmp_path, SaidForAll())
+    monkeypatch.undo()
+
+    for_all = next(project for project in report.projects if project.project == dream.dreaming.GLOBAL)
+    assert not for_all.merged and "could not be moved into place" in for_all.problems[0]
+    assert [session.session_id for session in archive.awaiting_dream()] == ["s-pnpm"]
+
+    dreamt(archive, claude, tmp_path, SaidForAll())
+
+    assert archive.awaiting_dream() == []
+    given = context(tmp_path / "memory", "/work/other", now="2026-10-03T09:00:00+00:00", live_root=claude)
+    assert given["everywhere"] == ["Use pnpm for JS projects."]

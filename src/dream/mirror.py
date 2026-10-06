@@ -74,9 +74,18 @@ class Mirror:
         The copy takes the mirror's place whole, by renaming folders, so a reader finds the old
         content or the new and never part of one. An accept that is cut short is finished by the
         next command that works on the mirror.
+
+        Where the system refuses to move the folders, the mirror is put back as it was before the
+        refusal is raised, so that what is done to it afterwards is not lost to a late accept.
         """
         disk.rename(self.folder / ".git", self.staging / ".git")
-        self._finish_accept()
+        try:
+            self._finish_accept()
+        except PermissionError:
+            if not self.folder.exists():
+                disk.rename(self._retired, self.folder)
+            disk.rename(self.staging / ".git", self.folder / ".git")
+            raise
         self._commit(message)
 
     def _finish_accept(self) -> None:

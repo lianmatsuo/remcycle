@@ -37,8 +37,6 @@ from dream.reconcile import (
 from dream.review import ReviewReport, review
 
 GLOBAL = "(global)"
-# Why a project's memory was left as it was when its folders could not be moved. The next dream takes it up again.
-_HELD_OPEN = "its copy of memory could not be moved into place, as happens on Windows while another program has it open"
 # Room left in the index for what sessions add during the day.
 _HEADROOM_LINES = 10
 _HEADROOM_BYTES = 1_500
@@ -163,6 +161,9 @@ def dream(
         work.setdefault(session.project, []).append(session)
 
     global_claims: list[Claim] = []
+    # Sessions that said something for every project. Each counts as read once the copy for all has taken it.
+    said_for_all: set[str] = set()
+    waiting_on_all: list[str] = []
     universal = Mirror(memory_root / key(GLOBAL))
     known_everywhere = _active(MemoryStore(universal.folder)) if universal.folder.exists() else {}
 
@@ -170,11 +171,8 @@ def dream(
         mirror = Mirror(memory_root / key(project))
         live = live_root / key(project) / "memory"
         outcome = ProjectReport(project)
-        try:
-            mirror.sync(live, project)
-            store = MemoryStore(mirror.stage())
-        except PermissionError:
-            outcome.problems.append(_HELD_OPEN)
+        store = _made_ready(mirror, live, project, outcome)
+        if store is None:
             report.projects.append(outcome)
             continue
         read: list[str] = []
@@ -204,6 +202,8 @@ def dream(
             outcome.unsupported.extend(extraction.rejected)
             ours, everyone = _routed(extraction.claims)
             global_claims.extend(everyone)
+            if everyone:
+                said_for_all.add(session.session_id)
             ops: list[Op] = reconcile(store.entries(), ours)
             ops += [
                 Demote(c.slot, f"the person corrected the assistant after it followed this: {c.evidence.command}")
@@ -232,7 +232,10 @@ def dream(
             continue
         if _settle(mirror, outcome, f"dream: {len(read)} sessions", judge):
             for session_id in read:
-                archive.record_dream(session_id)
+                if session_id in said_for_all:
+                    waiting_on_all.append(session_id)
+                else:
+                    archive.record_dream(session_id)
             if publish:
                 try:
                     mirror.publish(live)
@@ -243,11 +246,14 @@ def dream(
             report.projects.append(outcome)
 
     if global_claims:
-        universal.sync(None)
-        store = MemoryStore(universal.stage())
-        outcome = ProjectReport(GLOBAL, ops=reconcile(store.entries(), global_claims))
-        store.apply(outcome.ops)
-        _settle(universal, outcome, "dream: global", judge)
+        outcome = ProjectReport(GLOBAL)
+        store = _made_ready(universal, None, None, outcome)
+        if store is not None:
+            outcome.ops = reconcile(store.entries(), global_claims)
+            store.apply(outcome.ops)
+            if _settle(universal, outcome, "dream: global", judge):
+                for session_id in waiting_on_all:
+                    archive.record_dream(session_id)
         report.projects.append(outcome)
     return report
 
@@ -352,15 +358,25 @@ def _asked_once(judge: Judge) -> Judge:
     return asked_once
 
 
+def _made_ready(mirror: Mirror, live: Path | None, project: str | None, outcome: ProjectReport) -> MemoryStore | None:
+    """The mirror brought up to date and a fresh copy of it to change. None, with the reason noted, where the system refuses."""
+    try:
+        mirror.sync(live, project)
+        return MemoryStore(mirror.stage())
+    except PermissionError as e:
+        outcome.problems.append(f"its copy of memory could not be made ready: {e}")
+        return None
+
+
 def _settle(mirror: Mirror, outcome: ProjectReport, message: str, judge: Judge | None) -> bool:
-    """Accept the staged memory if the gate allows it."""
+    """Accept the staged memory if the gate allows it, and the system lets its folders be moved."""
     outcome.problems = check(mirror.folder, mirror.staging, judge)
     outcome.merged = not outcome.problems
     if outcome.merged:
         try:
             mirror.accept(message)
-        except PermissionError:
-            outcome.problems, outcome.merged = [_HELD_OPEN], False
+        except PermissionError as e:
+            outcome.problems, outcome.merged = [f"its copy of memory could not be moved into place: {e}"], False
     return outcome.merged
 
 
