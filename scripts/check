@@ -4,12 +4,14 @@
 #   scripts/check          everything
 #   scripts/check python   the dream command: lint and tests
 #   scripts/check mod      the Claude Code mod: manifest, types and tests
+#   scripts/check commits  the subjects of the commits this branch adds
 set -euo pipefail
 # A CDPATH from the caller's shell would send a relative cd somewhere else.
 unset CDPATH
 cd "$(dirname "$0")/.."
 
 TYPESCRIPT=7.0.2
+COMMIT_TYPES='build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test'
 
 step() {
   printf '\n== %s\n' "$1"
@@ -42,15 +44,42 @@ check_mod() {
   step "mod tests" claude plugin test mod
 }
 
+commit_subjects() {
+  local base="$1" subject bad=0
+  local conventional="^($COMMIT_TYPES)(\\([a-z0-9][a-z0-9-]*\\))?!?: [^ ]"
+  if ! git rev-parse --verify --quiet "$base" >/dev/null; then
+    echo "There is no $base to compare with. Set CHECK_BASE to the branch this one started from." >&2
+    return 1
+  fi
+  while IFS= read -r subject; do
+    if [[ ! $subject =~ $conventional ]]; then
+      echo "not a conventional commit: $subject" >&2
+      bad=1
+    fi
+  done < <(git log --no-merges --format=%s "$base..HEAD")
+  if [ "$bad" = 1 ]; then
+    echo "A subject reads type(scope): summary, with the scope optional. The types: ${COMMIT_TYPES//|/, }." >&2
+    return 1
+  fi
+}
+
+check_commits() {
+  # Only what the branch adds is checked: main holds commits from before the rule.
+  local base="${CHECK_BASE:-origin/main}"
+  step "commit subjects since $base" commit_subjects "$base"
+}
+
 case "${1:-all}" in
   all)
     check_python
     check_mod
+    check_commits
     ;;
   python) check_python ;;
   mod) check_mod ;;
+  commits) check_commits ;;
   *)
-    echo "usage: scripts/check [python|mod]" >&2
+    echo "usage: scripts/check [python|mod|commits]" >&2
     exit 2
     ;;
 esac

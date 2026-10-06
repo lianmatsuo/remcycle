@@ -57,13 +57,34 @@ jobs:
       - run: npm install --global "@anthropic-ai/claude-code@$CLAUDE_CODE"
       - run: scripts/check mod
 
-  gate:
-    # The one result to require on main: it passes only when every job above did.
-    if: always()
-    needs: [python, mod]
+  commits:
+    # A pull request's own commits. What is already on its base branch is not checked again.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - run: test "$RESULTS" = "success success"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - run: scripts/check commits
         env:
-          RESULTS: ${{ needs.python.result }} ${{ needs.mod.result }}
+          CHECK_BASE: origin/${{ github.base_ref }}
+
+  gate:
+    # The one result to require on main: it passes only when every job above did.
+    # The commits job runs for pull requests only, so elsewhere it counts as passed.
+    if: always()
+    needs: [python, mod, commits]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: |
+          test "$PYTHON" = success
+          test "$MOD" = success
+          test "$COMMITS" = success || test "$COMMITS" = skipped
+        env:
+          PYTHON: ${{ needs.python.result }}
+          MOD: ${{ needs.mod.result }}
+          COMMITS: ${{ needs.commits.result }}

@@ -103,7 +103,7 @@ remcycle is an independent project and is not affiliated with or endorsed by Ant
 scripts/check
 ```
 
-That runs everything CI runs: the Python lint and tests, then the mod's manifest, types and tests. [CONTRIBUTING.md](CONTRIBUTING.md) says how to start, and [AGENTS.md](AGENTS.md) is the working guide for people and coding agents alike.
+That runs everything CI runs: the Python lint and tests, the mod's manifest, types and tests, and the subjects of the branch's commits. [CONTRIBUTING.md](CONTRIBUTING.md) says how to start, and [AGENTS.md](AGENTS.md) is the working guide for people and coding agents alike.
 
 The Python tests sit at these seams: transcript parsing, the archive against a real SQLite file, settings, reconciliation as pure functions, the memory store against folders in Claude Code's format, extraction through a stand-in for the model, the gate, and whole dream runs against temporary folders.
 

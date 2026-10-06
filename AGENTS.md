@@ -10,7 +10,7 @@ remcycle is two programs in one clone: the `dream` command (`src/dream`, Python,
 scripts/check
 ```
 
-It runs everything CI runs: the Python lint and tests, then the mod's manifest, types and tests. A change is done when it passes. `scripts/check python` and `scripts/check mod` run one half.
+It runs everything CI runs: the Python lint and tests, the mod's manifest, types and tests, and the subjects of the branch's commits. A change is done when it passes. `scripts/check python` and `scripts/check mod` run one half.
 
 In the pull request, say what you ran and what it printed. If part of the gate could not run, say which part.
 
@@ -41,4 +41,4 @@ The machine you are on may hold its owner's real archive and memory, under `~/.l
 
 Branch from `main` and open a pull request. CI runs the Python half of the gate on Linux and macOS, on the oldest and newest Python remcycle supports, and the mod's half on Linux, against the Claude Code version the mod was written against. Merge when the `gate` result is green.
 
-A commit subject says what the change does, in plain words: "Say how many sessions are unread", not "Update cli.py".
+Commits follow [Conventional Commits](https://www.conventionalcommits.org): the subject reads `type(scope): summary`, with the scope optional. The types are build, chore, ci, docs, feat, fix, perf, refactor, revert, style and test. The summary says what the change does in plain words: `feat(cli): say how many sessions are unread`, not `feat: update cli.py`. The gate checks the subject of every commit the branch adds.
