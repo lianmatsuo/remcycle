@@ -1,17 +1,7 @@
 {
+  "extends": "./.claude-plugin/types/tsconfig.json",
   "compilerOptions": {
-    "target": "es2023",
-    "lib": ["es2023"],
-    "types": [],
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "noEmit": true,
-    "skipLibCheck": true,
-    "jsx": "react",
-    "jsxFactory": "h",
-    "jsxFragmentFactory": "Fragment"
+    "types": ["claude-code", "claude-code-tools"]
   },
-  "include": [".claude/types/claude-code.d.ts", "hooks", "tests", "types"]
+  "include": ["hooks", "tests", "types"]
 }

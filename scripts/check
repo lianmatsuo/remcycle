@@ -11,6 +11,8 @@ unset CDPATH
 cd "$(dirname "$0")/.."
 
 TYPESCRIPT=7.0.2
+# Mods are on by default from this version of Claude Code.
+MODS_SINCE=2.1.287
 COMMIT_TYPES='build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test'
 
 step() {
@@ -30,17 +32,20 @@ check_mod() {
     echo "Install Claude Code, or run: scripts/check python" >&2
     exit 1
   fi
-  # Claude Code before 2.1.287 treats mods as early access and wants this set. Later versions ignore it.
-  export CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1
+  local have
+  have="$(claude --version | awk '{print $1}')"
+  if [ "$(printf '%s\n%s\n' "$MODS_SINCE" "$have" | sort -V | head -n 1)" != "$MODS_SINCE" ]; then
+    echo "The mod's checks need Claude Code $MODS_SINCE or later, and this is $have." >&2
+    echo "Bring it up to date with: claude update. Or run: scripts/check python" >&2
+    exit 1
+  fi
   step "mod manifest" claude plugin validate mod
-  # Written by a headless session that needs no sign-in. The person's own settings stay out of it,
-  # so their plugins' session hooks do not run. Beside the declarations it writes the tools of
-  # their connectors and the contracts of their plugins, which mod/tsconfig.json leaves out.
-  # The command that writes them exits 0 even when it wrote nothing, so an old copy is cleared
-  # first: without a fresh one the typecheck fails, where it would have passed against the old.
-  rm -f mod/.claude/types/claude-code.d.ts
+  # Claude Code writes the declarations of its mods API into the mod's folder each time it loads
+  # the mod. Running the mod's own command loads it once, with no sign-in and none of the person's
+  # settings. The old copy is cleared first, so that a load which wrote nothing fails the typecheck.
+  rm -f mod/.claude-plugin/types/claude-code/index.d.ts
   step "mod type declarations, from the installed Claude Code" \
-    env -u CLAUDE_CODE_PLUGIN_DIRS claude --setting-sources "" --no-session-persistence -p "/plugin-types mod/.claude/types" </dev/null
+    env -u CLAUDE_CODE_PLUGIN_DIRS claude --plugin-dir mod --setting-sources "" --no-session-persistence -p "/remcycle" </dev/null
   step "mod types" pnpm --package="typescript@$TYPESCRIPT" dlx tsc -p mod/tsconfig.json
   step "mod tests" claude plugin test mod
 }
