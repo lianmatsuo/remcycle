@@ -398,7 +398,7 @@ _PLUGIN_SWITCHES = ("CLAUDE_CODE_PLUGIN_DIRS", "CLAUDE_CODE_ENABLE_FUNCTION_HOOK
 class ClaudeCode:
     """Asks the user's own Claude Code, run headless, so remcycle never handles credentials.
 
-    The run loads no settings, tools or project context and writes no transcript, so it
+    The run loads no settings, tools, MCP servers, skills or project context and writes no transcript, so it
     cannot be mistaken for a session and archived in turn. The answer comes back in the
     shape of `schema`.
     """
@@ -427,6 +427,10 @@ class ClaudeCode:
             "--system-prompt", self._system,
             "--tools", "",
             "--setting-sources", "",
+            # Without these, the descriptions of the person's MCP servers and skills ride along on every
+            # call: measured on 2.1.291, about 183,000 tokens of context against 500 without them.
+            "--strict-mcp-config",
+            "--disable-slash-commands",
             "--no-session-persistence",
             *(["--effort", self._effort] if self._effort else []),
         ]  # fmt: skip

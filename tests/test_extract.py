@@ -152,3 +152,18 @@ def test_the_model_step_runs_without_the_plugins_of_the_session_that_started_it(
 
     assert reply.data == {"plugins": "unset", "hooks": "unset", "home": "/home/me"}
     assert reply.cost_usd == 0.01
+
+
+def test_the_model_step_loads_no_mcp_servers_and_no_skills(tmp_path, monkeypatch):
+    stand_in = tmp_path / "claude"
+    stand_in.write_text(
+        "#!/bin/sh\n"
+        "cat > /dev/null\n"
+        'case " $* " in *" --strict-mcp-config "*) mcp=off ;; *) mcp=on ;; esac\n'
+        'case " $* " in *" --disable-slash-commands "*) skills=off ;; *) skills=on ;; esac\n'
+        'printf \'{"structured_output": {"mcp": "%s", "skills": "%s"}, "total_cost_usd": 0.01}\' "$mcp" "$skills"\n'
+    )
+    stand_in.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+
+    assert ClaudeCode()("what did this session establish?").data == {"mcp": "off", "skills": "off"}
