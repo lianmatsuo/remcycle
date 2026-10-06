@@ -101,6 +101,8 @@ There is one thing a handed-over list cannot do: take a stale note out of the fo
 
 ## The panel
 
+![The remcycle panel in full screen: what needs you on the left, and what was learned, left open and closed on the right.](images/panel.webp)
+
 Type `/remcycle` in any session. The panel shows:
 
 - **Needs you**: memories a session or a review has put in question, one at a time, with what the memory says and why it is doubted. You keep it, retire it, take the suggestion, or add it to the chat to talk it through.

@@ -1,8 +1,72 @@
-# remcycle
+<h1 align="center">remcycle</h1>
 
-A Claude Code mod that gives it a nightly memory, built from its own sessions.
+<p align="center">A Claude Code mod that gives it a nightly memory, built from its own sessions.</p>
+
+<p align="center">
+  <a href="https://github.com/lianmatsuo/remcycle/actions/workflows/check.yml"><img src="https://github.com/lianmatsuo/remcycle/actions/workflows/check.yml/badge.svg" alt="Checks"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-Apache--2.0-555" alt="Licence: Apache-2.0"></a>
+  <img src="https://img.shields.io/badge/Claude%20Code-2.1.287%20or%20later-555" alt="Needs Claude Code 2.1.287 or later">
+</p>
+
+<p align="center">
+  <img src="docs/images/session.webp" alt="A Claude Code session with the remcycle panel beside it. The panel shows two questions waiting for a ruling, nine memories and where they came from, what was learned lately, and what earlier sessions left open." width="100%">
+</p>
+
+<p align="center"><sub>The shop project in the pictures is made up.</sub></p>
 
 Claude Code starts every session fresh, and the notes it keeps about your projects pile up until the old ones are wrong. remcycle keeps everything you and Claude said, and while you are away it reads the new sessions, keeps what you actually decided, and questions the rest. The next session starts knowing it.
+
+- **Sessions that start informed.** Each new session is handed what you have said applies to all your work, what was learned about the project, and what earlier sessions left unfinished.
+- **Memory you can trust.** Every memory points at the words it came from. Something only Claude concluded is never loaded as if you had said it, and a note you already had is never replaced without asking you.
+- **A list that stays short.** Stale, repeated and contradictory notes are found and put to you, so what loads at the start of a session does not keep growing.
+- **Recall.** Claude can search everything that was said in past sessions, get a summary of any the dream has read, and read the exact words back when it needs them.
+- **Everything on your machine.** The archive is one local file. The only thing that leaves is what the dream sends to the model, through your own Claude Code.
+
+## Get started
+
+You need [Claude Code](https://claude.com/claude-code) 2.1.287 or later and [uv](https://docs.astral.sh/uv/).
+
+```bash
+uv tool install git+https://github.com/lianmatsuo/remcycle
+claude plugin marketplace add lianmatsuo/remcycle
+claude plugin install remcycle@remcycle
+```
+
+The first line installs the `dream` command, and the other two install the mod. Then:
+
+1. **Say what it should never read.** A client's or an employer's projects go in [the settings file](docs/reference.md#settings) before anything else.
+2. **Build the archive.** `dream ingest` copies what was said in your past sessions into one local file. It sends nothing anywhere.
+3. **Run a first dream.** `dream run --limit 3` reads your three oldest sessions. This is the step that uses your Claude plan: one long session came to about $0.60 at API prices.
+4. **Open the panel.** Start a new session and type `/remcycle`.
+
+To have the dream run by itself, see [Running it every night](docs/schedule.md).
+
+### Or let Claude set it up
+
+Paste this into Claude Code:
+
+```text
+Set up remcycle for me. Clone https://github.com/lianmatsuo/remcycle into ~/remcycle, or run git pull there if it is already cloned. Then read docs/setup-with-claude.md in that folder and follow it step by step.
+```
+
+Claude installs the command, asks which projects to leave out, and builds the archive. It stops and asks you before each of the three steps that cost model usage or change how Claude Code runs: the first dream, loading the mod in every session, and the nightly run. You can say no to any of them and turn it on later.
+
+Set up this way, remcycle runs from that folder, so it has to stay where it is. [Removing it](docs/reference.md#removing-it) says how to undo each part.
+
+## The panel
+
+<p align="center">
+  <img src="docs/images/panel.webp" alt="The remcycle panel in full screen. On the left, three tiles: two questions need you, nine memories, the index five per cent full. Under them a question about where deploys go, with buttons to take the suggestion, keep the memory, add it to the chat or skip. On the right, what was learned lately, what was left open and what was closed lately." width="100%">
+</p>
+
+Type `/remcycle` in any session.
+
+- **Needs you.** Memories a session or a review has put in question, one at a time, with what the memory says and why it is doubted. You take the suggestion, keep the memory, or add it to the chat to talk it through.
+- **Memories.** How many there are and where each came from: you said it, you agreed to it, or it was written before remcycle.
+- **Index used.** How full the list is that Claude Code loads at the start of a session. This is the number remcycle exists to keep low.
+- **Learned lately, Left open, Closed lately.** The newest of each, with the whole list a button away. A thread closes when the work is done, and you can reopen one.
+
+## How it works
 
 ```mermaid
 flowchart LR
@@ -52,29 +116,6 @@ flowchart TB
     dream -- "new sessions" --> model
     dream -. "only when you publish" .-> own
 ```
-
-## What you get
-
-- **Sessions that start informed.** Each new session is handed what you have said applies to all your work, what was learned about the project, and what earlier sessions left unfinished.
-- **Memory you can trust.** Every memory points at the words it came from. Something only Claude concluded is never loaded as if you had said it, and a note you already had is never replaced without asking you.
-- **A list that stays short.** Stale, repeated and contradictory notes are found and put to you, so what loads at the start of a session does not keep growing.
-- **Recall.** Claude can search everything that was said in past sessions, get a summary of any the dream has read, and read the exact words back when it needs them.
-- **A panel.** `/remcycle` shows what needs your ruling, what was learned lately and what is left open.
-- **Everything on your machine.** The archive is one local file. The only thing that leaves is what the dream sends to the model, through your own Claude Code.
-
-## Set it up by asking Claude
-
-Paste this into Claude Code:
-
-```text
-Set up remcycle for me. Clone https://github.com/lianmatsuo/remcycle into ~/remcycle, or run git pull there if it is already cloned. Then read docs/setup-with-claude.md in that folder and follow it step by step.
-```
-
-Claude installs the command, asks which projects to leave out, and builds the archive. It stops and asks you before each of the three steps that cost model usage or change how Claude Code runs: the first dream, loading the mod in every session, and the nightly run. You can say no to any of them and turn it on later.
-
-The folder has to stay where it is afterwards, because remcycle runs from it. [Removing it](docs/reference.md#removing-it) says how to undo each part.
-
-To do it by hand, see [Install by hand](docs/reference.md#install-by-hand).
 
 ## What it does without asking
 
