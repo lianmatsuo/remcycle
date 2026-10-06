@@ -1,0 +1,19 @@
+name: An idea
+description: Something remcycle could do, or do differently.
+labels: [idea]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you were trying to do
+      description: The situation, more than the solution. What got in the way?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+  - type: markdown
+    attributes:
+      value: |
+        docs/intent.md records what was decided so far and what was rejected, with the reasons. It is worth a look before proposing a change to how memory is written or what is sent to the model.

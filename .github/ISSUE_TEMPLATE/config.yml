@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: A security problem
+    url: https://github.com/lianmatsuo/remcycle/security/advisories/new
+    about: Report privately anything that could expose someone's data.

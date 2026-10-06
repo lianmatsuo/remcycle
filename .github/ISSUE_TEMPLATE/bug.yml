@@ -1,0 +1,40 @@
+name: Something is wrong
+description: remcycle did something it should not have, or failed.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before pasting anything, take out what is private: session text, memory contents, project names and paths.
+        If the problem could expose someone's data, report it privately instead: Security tab, then "Report a vulnerability".
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened
+      description: What you ran or did, and what remcycle did. Paste the output if there was any.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part
+      options:
+        - The dream command (ingest, search, run, review, publish)
+        - The mod (what a session is handed, the tools, the /remcycle panel)
+        - Setup
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: What `claude --version` prints, your operating system, and the remcycle commit (`git rev-parse --short HEAD` in the clone).
+    validations:
+      required: true
