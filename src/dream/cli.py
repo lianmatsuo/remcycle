@@ -94,8 +94,13 @@ def _search(archive: Archive, args: argparse.Namespace) -> int:
     remembered = []
     for copy in () if project is None else (project, GLOBAL):
         store = MemoryStore(args.memory / key(copy))
-        found = store.find(asked)
-        store.note_found([entry.slot for entry in found], _now())
+        try:
+            found = store.find(asked)
+            store.note_found([entry.slot for entry in found], _now())
+        except (OSError, ValueError):
+            # The dream replaces a copy's files whole when it accepts a change. A search that lands
+            # in that moment finds them missing or half there, and answers from the archive alone.
+            continue
         remembered += found
     for found in remembered:
         print(f"memory      {found.slot} ({found.matched})  {found.statement}")
@@ -292,8 +297,12 @@ def _note_read(archive: Archive, args: argparse.Namespace) -> int:
     # Claude Code keeps a memory at <project>/memory/<name>.md. The dream's own copy holds it at <project>/<name>.md.
     is_own_copy = file.parent.parent == args.memory.resolve()
     copy = file.parent if is_own_copy else args.memory / file.parent.parent.name
-    if file.stem in MemoryStore(copy).entries():
-        print(MemoryStore(copy).note_read(file.stem, Path(project_of(str(Path.cwd()))), _now()) or "")
+    try:
+        if file.stem in MemoryStore(copy).entries():
+            print(MemoryStore(copy).note_read(file.stem, Path(project_of(str(Path.cwd()))), _now()) or "")
+    except (OSError, ValueError):
+        # The dream is replacing the copy's files at this moment, so this read goes uncounted.
+        pass
     return 0
 
 

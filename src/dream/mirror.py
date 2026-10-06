@@ -12,7 +12,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from dream.memory import INDEX, SIDE, USAGE, MemoryStore
+from dream.memory import INDEX, SIDE, STAGED, MemoryStore
 
 
 class LiveChanged(Exception):
@@ -22,7 +22,7 @@ class LiveChanged(Exception):
 class Mirror:
     def __init__(self, folder: Path) -> None:
         self.folder = folder
-        self.staging = folder.with_name(folder.name + ".staging")
+        self.staging = folder.with_name(folder.name + STAGED)
         self._synced_file = folder / SIDE / "synced.json"
 
     def sync(self, live: Path | None, project: str | None = None) -> None:
@@ -64,19 +64,12 @@ class Mirror:
         return self.staging
 
     def accept(self, message: str) -> None:
-        """Make the staged copy the mirror's content and record it in history.
-
-        The count of look-ups stays the mirror's own: sessions add to it while the copy is being worked on.
-        """
-        usage = self.folder / SIDE / USAGE
-        counted = usage.read_bytes() if usage.exists() else None
+        """Make the staged copy the mirror's content and record it in history."""
         for item in self.folder.iterdir():
             if item.name == ".git":
                 continue
             shutil.rmtree(item) if item.is_dir() else item.unlink()
         shutil.copytree(self.staging, self.folder, dirs_exist_ok=True)
-        if counted is not None:
-            usage.write_bytes(counted)
         self._commit(message)
 
     def publish(self, live: Path, backup: Path | None = None) -> None:

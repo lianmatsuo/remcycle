@@ -42,7 +42,7 @@ uv run dream search retention sweep
 
 Matching memories first, found by name, alias or words, then the best-matching turns from the current repository's sessions. Each turn is labelled `session#turn`. What you typed ranks above what Claude wrote. Last comes what each session it found was, in a few lines: the summary the dream wrote when it read that session.
 
-Among memories that match alike, the one needed most often comes first. A memory is needed once for every session it came up in, and once more each time a search brings it up or a session reads its file. Those look-ups are counted as they happen, and a dream that is running at the time does not lose them.
+Among memories that match alike, the one needed most often comes first. A memory is needed once for every session it came up in, and once more each time a search brings it up or a session reads its file. Those look-ups are counted as they happen, in a file beside the dream's copy, so a dream that is running at the time does not lose them. A search that lands in the moment the dream replaces its copy answers from the archive alone.
 
 | Option | Effect |
 |---|---|

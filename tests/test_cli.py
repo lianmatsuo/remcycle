@@ -136,6 +136,21 @@ def test_a_memory_that_a_search_brings_up_is_counted_as_looked_up(tmp_path, caps
     assert main(["note-read", str(copy.folder / "package-manager.md"), "--memory", str(memory), "--db", str(tmp_path / "archive.db")]) == 0
     assert copy.reads("package-manager") == 2
 
+    # So is reading it in Claude Code's own folder, which keeps a project's memories one level down.
+    theirs = tmp_path / "claude" / "projects" / copy.folder.name / "memory" / "package-manager.md"
+    theirs.parent.mkdir(parents=True)
+    theirs.write_text((copy.folder / "package-manager.md").read_text())
+    assert main(["note-read", str(theirs), "--memory", str(memory), "--db", str(tmp_path / "archive.db")]) == 0
+    assert copy.reads("package-manager") == 3
+
+    # A copy the dream is in the middle of replacing is passed over: the search still answers.
+    (copy.folder / ".remcycle" / "entries.json").write_text('{"package-manager": {"evid')
+    capsys.readouterr()
+    assert main(["search", *scope, "pnpm"]) == 0
+    answered = capsys.readouterr().out
+    assert "package-manager" not in answered and "lockfile (words)" in answered
+    assert main(["note-read", str(theirs), "--memory", str(memory), "--db", str(tmp_path / "archive.db")]) == 0
+
 
 def test_ingest_says_how_many_sessions_the_dream_has_not_read(tmp_path, capsys, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no-settings"))

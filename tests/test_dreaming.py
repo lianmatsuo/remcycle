@@ -323,6 +323,8 @@ def test_a_look_up_counted_while_the_dream_is_at_work_is_kept(tmp_path):
 
     staged = MemoryStore(mirror.stage())
     MemoryStore(mirror.folder).note_found(["package-manager"], "2026-10-06T09:00:00Z")
+    # The copy being worked on ranks by the same count, look-ups made since it was staged included.
+    assert staged.reads("package-manager") == 1
     staged.apply([Confirm("package-manager", Evidence("s-later", 1, 1), "2026-10-05T09:00:00Z")])
     mirror.accept("dream: 1 sessions")
 

@@ -9,10 +9,16 @@ import json
 import os
 import re
 import secrets
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:  # Windows has no fcntl, and there two writers at once can lose a count.
+    fcntl = None
 
 from dream.claims import Claim, ClaimType, Entry, Evidence, Provenance, Status, claim_from_json, claim_to_json
 from dream.extract import Thread
@@ -26,7 +32,7 @@ INDEX_BYTE_LIMIT = 25_000
 # Past this many entries, a session should pick a topic before it picks an entry.
 TOPICS_AFTER = 60
 SIDE = ".remcycle"
-USAGE = "usage.json"
+STAGED = ".staging"
 # Claude Code's own memory types, which decide how a session treats the file.
 _BUILT_IN_TYPE = {
     ClaimType.PREFERENCE: "feedback",
@@ -111,7 +117,7 @@ class MemoryStore:
         self._threads_file = folder / SIDE / "threads.json"
         self._closed_file = folder / SIDE / "closed.json"
         self._flat_file = folder / SIDE / "flat"
-        self._usage_file = folder / SIDE / USAGE
+        self._usage_file = _count_beside(folder)
         self._lines_file = folder / SIDE / "index.md"
 
     @property
@@ -317,11 +323,11 @@ class MemoryStore:
     def _count(self, slots: Sequence[str], at: str) -> None:
         if not slots:
             return
-        usage = json.loads(self._usage_file.read_text()) if self._usage_file.exists() else {}
-        for slot in slots:
-            usage[slot] = {"reads": usage.get(slot, {}).get("reads", 0) + 1, "last": at}
-        self._usage_file.parent.mkdir(exist_ok=True)
-        _put(self._usage_file, json.dumps(usage, indent=2, sort_keys=True) + "\n")
+        with _held(self._usage_file):
+            usage = json.loads(self._usage_file.read_text()) if self._usage_file.exists() else {}
+            for slot in slots:
+                usage[slot] = {"reads": usage.get(slot, {}).get("reads", 0) + 1, "last": at}
+            _put(self._usage_file, json.dumps(usage, indent=2, sort_keys=True) + "\n")
 
     def reads(self, slot: str) -> int:
         usage = json.loads(self._usage_file.read_text()) if self._usage_file.exists() else {}
@@ -581,6 +587,27 @@ class MemoryStore:
         else:
             lines.append(line)
         self._keep(lines)
+
+
+def _count_beside(folder: Path) -> Path:
+    """Where look-ups of a folder's entries are counted.
+
+    Beside the folder and not in it: sessions add to the count at any moment, and the dream
+    replaces the folder's contents whole. A copy being worked on shares its original's count.
+    """
+    return folder.with_name(folder.name.removesuffix(STAGED) + ".usage.json")
+
+
+@contextmanager
+def _held(file: Path) -> Iterator[None]:
+    """Keep the file to one writer at a time, so that two adding to it at once both count."""
+    file.parent.mkdir(parents=True, exist_ok=True)
+    if fcntl is None:
+        yield
+        return
+    with file.with_name(file.name + ".lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
 
 
 def _put(file: Path, text: str) -> None:

@@ -1,4 +1,5 @@
 import os
+import threading
 
 import pytest
 
@@ -260,24 +261,33 @@ def test_among_memories_that_match_a_search_alike_the_one_needed_most_comes_firs
     assert [found.slot for found in store.find("biome")] == ["biome", second, first]
 
 
-def test_two_counts_written_at_once_both_finish(folder, monkeypatch):
+def test_counts_written_at_once_are_all_kept(folder):
     store = MemoryStore(folder)
     store.apply([Add(claim("package-manager", "Use pnpm for JS projects."))])
-    put_in_place = os.replace
-    others = []
 
-    def while_another_writer_runs(written, target):
-        # Between one writer finishing its file and putting it in place, a second writer does both.
-        if not others:
-            others.append("second")
-            MemoryStore(folder).note_found(["package-manager"], "2026-10-06T09:00:01Z")
-        put_in_place(written, target)
+    def look_up_many_times():
+        for n in range(25):
+            MemoryStore(folder).note_found(["package-manager"], f"2026-10-06T09:00:{n:02d}Z")
 
-    monkeypatch.setattr(os, "replace", while_another_writer_runs)
+    writers = [threading.Thread(target=look_up_many_times) for _ in range(4)]
+    for writer in writers:
+        writer.start()
+    for writer in writers:
+        writer.join()
+
+    assert store.reads("package-manager") == 100
+
+
+def test_a_look_up_is_counted_beside_the_folder_and_changes_nothing_inside_it(folder):
+    store = MemoryStore(folder)
+    store.apply([Add(claim("package-manager", "Use pnpm for JS projects."))])
+    inside = sorted(path.relative_to(folder) for path in folder.rglob("*"))
 
     store.note_found(["package-manager"], "2026-10-06T09:00:00Z")
+    store.note_read("package-manager", folder, "2026-10-06T09:01:00Z")
 
-    assert store.reads("package-manager") >= 1
+    assert sorted(path.relative_to(folder) for path in folder.rglob("*")) == inside
+    assert store.reads("package-manager") == 2
 
 
 def test_an_index_over_its_budget_sheds_the_oldest_unread_legacy_lines_and_keeps_every_file(folder):
