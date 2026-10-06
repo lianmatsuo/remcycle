@@ -39,26 +39,40 @@ check_mod() {
     echo "Bring it up to date with: claude update. Or run: scripts/check python" >&2
     exit 1
   fi
+  step "marketplace file" claude plugin validate .
   step "mod manifest" claude plugin validate mod
   # Claude Code writes the declarations of its mods API into the mod's folder each time it loads
-  # the mod. Running the mod's own command loads it once, with no sign-in and none of the person's
-  # settings. The old copy is cleared first, so that a load which wrote nothing fails the typecheck.
+  # the mod. Running the mod's own command loads it once, with no sign-in. Loading it runs its
+  # hooks, which call the dream command, so everything is pointed at an empty folder: the
+  # developer's own settings, archive and memory are left alone. The old copy of the declarations
+  # is cleared first, so that a load which wrote nothing fails the typecheck.
   rm -f mod/.claude-plugin/types/claude-code/index.d.ts
+  local empty
+  empty="$(mktemp -d)"
   step "mod type declarations, from the installed Claude Code" \
-    env -u CLAUDE_CODE_PLUGIN_DIRS claude --plugin-dir mod --setting-sources "" --no-session-persistence -p "/remcycle" </dev/null
+    env -u CLAUDE_CODE_PLUGIN_DIRS CLAUDE_CONFIG_DIR="$empty" XDG_DATA_HOME="$empty" XDG_CONFIG_HOME="$empty" \
+    claude --plugin-dir mod --no-session-persistence -p "/remcycle" </dev/null
+  rm -rf "$empty"
   step "mod types" pnpm --package="typescript@$TYPESCRIPT" dlx tsc -p mod/tsconfig.json
   step "mod tests" claude plugin test mod
 }
 
 commit_subjects() {
   local base="$1" subject bad=0
-  local conventional="^($COMMIT_TYPES)(\\([a-z0-9][a-z0-9-]*\\))?!?: [^ ]"
+  local conventional="^($COMMIT_TYPES)(\\([a-z0-9][a-z0-9._/-]*\\))?!?: [^ ]"
+  # The subject git itself gives a revert.
+  local reverted='^Revert "'
   if ! git rev-parse --verify --quiet "$base" >/dev/null; then
     echo "There is no $base to compare with. Set CHECK_BASE to the branch this one started from." >&2
     return 1
   fi
+  if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+    echo "This clone holds only part of the history, so some commits would go unchecked." >&2
+    echo "Fetch the rest with: git fetch --unshallow" >&2
+    return 1
+  fi
   while IFS= read -r subject; do
-    if [[ ! $subject =~ $conventional ]]; then
+    if [[ ! $subject =~ $conventional && ! $subject =~ $reverted ]]; then
       echo "not a conventional commit: $subject" >&2
       bad=1
     fi
