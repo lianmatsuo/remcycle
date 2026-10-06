@@ -2,12 +2,17 @@
 name = "remcycle"
 version = "0.2.0"
 description = "Garbage collection for Claude Code's memory: rereads your sessions every day, keeps what you decided, and questions stale notes"
-readme = "README.md"
+dynamic = ["readme"]
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.12"
 authors = [{ name = "Lian Matsuo" }]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/lianmatsuo/remcycle"
+Changelog = "https://github.com/lianmatsuo/remcycle/blob/main/CHANGELOG.md"
+Issues = "https://github.com/lianmatsuo/remcycle/issues"
 
 [project.scripts]
 dream = "dream.cli:main"
@@ -19,11 +24,33 @@ dev = [
 ]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-fancy-pypi-readme>=25.1"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dream"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/CHANGELOG.md"]
+
+# PyPI shows the README away from the repository, so its links and pictures are given in full.
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '\]\((?!https?://|#)([^)]+)\)'
+replacement = '](https://github.com/lianmatsuo/remcycle/blob/main/\1)'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = 'href="(?!https?://|#)([^"]+)"'
+replacement = 'href="https://github.com/lianmatsuo/remcycle/blob/main/\1"'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = 'src="(?!https?://)([^"]+)"'
+replacement = 'src="https://raw.githubusercontent.com/lianmatsuo/remcycle/main/\1"'
 
 [tool.ruff]
 # Wide enough for the lines the code already has, so sorting imports does not rewrap them.
