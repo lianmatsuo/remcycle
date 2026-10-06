@@ -28,6 +28,9 @@ jobs:
           - { os: macos-15, python: "3.12" }
           - { os: windows-2025, python: "3.12" }
           - { os: windows-2025, python: "3.14" }
+          # The last Python that leaves a new folder on Windows open to the machine's other users
+          # when asked to keep it to its owner. remcycle has to close the archive's folder itself there.
+          - { os: windows-2025, python: "3.12.3" }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     defaults:
