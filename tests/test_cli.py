@@ -447,17 +447,31 @@ def test_a_daily_dream_that_died_is_reported_and_one_still_running_is_left_alone
     put_session(root, "s-new", [human("use bun here", 0, timestamp="2026-10-07T20:00:00.000Z")], cwd="/work/shop")
     assert main(["ingest", "--root", str(root), "--db", db]) == 0
     state = tmp_path / "data" / "remcycle" / "daily.json"
-    yesterday = "2026-10-07T08:00:00+00:00"
+    yesterday, just_now = "2026-10-07T08:00:00+00:00", "2026-10-08T07:59:50+00:00"
 
-    dream.daily.save(state, dream.daily.State(began=yesterday, started=yesterday, pid=os.getpid()))
-    capsys.readouterr()
-    assert main(["daily", "--db", db, "--root", str(root)]) == 0
-    assert "still running" in capsys.readouterr().out
-    assert started == []
+    def said_to_have_failed():
+        capsys.readouterr()
+        assert main(["status", "--db", db, "--project", str(tmp_path)]) == 0
+        return json.loads(capsys.readouterr().out)["daily"]["failed"]
 
     dream.daily.save(state, dream.daily.State(began=yesterday, started=yesterday, pid=999_999))
-    assert main(["status", "--db", db, "--project", str(tmp_path)]) == 0
-    assert json.loads(capsys.readouterr().out)["daily"]["failed"] == "it stopped before it finished"
+    with dream.daily.running(state):  # as the background run does, for as long as it lives
+        capsys.readouterr()
+        assert main(["daily", "--db", db, "--root", str(root)]) == 0
+        assert "still running" in capsys.readouterr().out
+        assert said_to_have_failed() is None
+    assert started == []
+
+    # A run started a moment ago has not taken its lock yet, and is known by its process until it has.
+    dream.daily.save(state, dream.daily.State(began=yesterday, started=just_now, pid=os.getpid()))
+    assert said_to_have_failed() is None
+
+    # The run is long gone, and the system has given its process number to something else that is running.
+    dream.daily.save(state, dream.daily.State(began=yesterday, started=yesterday, pid=os.getpid()))
+    assert said_to_have_failed() == "it stopped before it finished"
+    assert main(["daily", "--db", db, "--root", str(root)]) == 0
+    assert "started in the background" in capsys.readouterr().out
+    assert len(started) == 1
 
 
 def test_the_model_reads_without_holding_the_turn_at_changing_memory_and_the_dream_after_takes_it(

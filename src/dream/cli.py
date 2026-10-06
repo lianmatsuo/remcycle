@@ -290,7 +290,8 @@ def _daily_status(archive: Archive, args: argparse.Namespace) -> dict:
     state = daily.load(args.state)
     began = state.began or _now()
     # A run killed before it could record its end, by a restart or otherwise, would read as running forever.
-    died = state.finished is None and state.failed is None and state.pid is not None and not daily.is_alive(state.pid)
+    unfinished = state.finished is None and state.failed is None and state.pid is not None
+    died = unfinished and not daily.is_running(args.state, state, _now())
     return {
         "on": args.daily_on,
         "history": args.daily_history,
@@ -363,7 +364,7 @@ def _daily(archive: Archive, args: argparse.Namespace) -> int:
     with _serialised(args.state):
         state = daily.begin(daily.load(args.state), _now())
         daily.save(args.state, state)
-        if state.finished is None and state.failed is None and daily.is_alive(state.pid):
+        if state.finished is None and state.failed is None and daily.is_running(args.state, state, _now()):
             print(f"the daily dream is still running: it started at {state.started}")
             return 0
         if not daily.is_due(state, _now()):
@@ -382,7 +383,19 @@ def _daily(archive: Archive, args: argparse.Namespace) -> int:
 
 
 def _daily_run(archive: Archive, args: argparse.Namespace) -> int:
-    """The background half of `dream daily`: one dream over what is due, and a record of how it ended."""
+    """The background half of `dream daily`: one dream over what is due, and a record of how it ended.
+
+    It runs under the lock by which a session tells that a daily dream is still running.
+    """
+    try:
+        with daily.running(args.state):
+            return _one_daily_dream(archive, args)
+    except lock.Busy:
+        print("dream: another daily dream is still running", file=sys.stderr)
+        return 1
+
+
+def _one_daily_dream(archive: Archive, args: argparse.Namespace) -> int:
     state = daily.load(args.state)
     run = argparse.Namespace(
         **vars(args), publish=False, limit=args.daily_limit, since=daily.cutoff(args.daily_history, state.began or _now())

@@ -4,16 +4,19 @@ import json
 import os
 import subprocess
 import sys
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from dream import disk
+from dream import disk, lock
 
 DUE_AFTER = timedelta(hours=20)
 """How long after one daily dream started the next may start."""
 WEEK = timedelta(days=7)
+_COMING_UP = timedelta(minutes=1)
+"""How long a daily dream that was just started is given to take the lock it runs under."""
 
 
 @dataclass(frozen=True)
@@ -100,6 +103,37 @@ def start(argv: list[str], log: Path, env: Mapping[str, str] | None = None) -> i
             argv, stdin=subprocess.DEVNULL, stdout=out, stderr=out, cwd=log.parent, env=loose, **_CUT_LOOSE
         )
     return process.pid
+
+
+@contextmanager
+def running(file: Path) -> Iterator[None]:
+    """Hold, for as long as the block runs, the lock that says a daily dream is running. `file` is where its state is kept.
+
+    Raises lock.Busy if another daily dream holds it.
+    """
+    with lock.held(_running_lock(file), wait=5.0):
+        yield
+
+
+def is_running(file: Path, state: State, now: str) -> bool:
+    """Whether the daily dream the state describes is still running.
+
+    It is while it holds its lock, which the system lets go of when the process ends, however it
+    ends. The number of its process says less: once the process is gone the system gives the
+    number out again. So the number is only believed for the moment before the run has its lock.
+    """
+    try:
+        with lock.held(_running_lock(file), wait=0):
+            pass
+    except lock.Busy:
+        return True
+    if state.started is None or datetime.fromisoformat(now) - datetime.fromisoformat(state.started) >= _COMING_UP:
+        return False
+    return is_alive(state.pid)
+
+
+def _running_lock(file: Path) -> Path:
+    return file.with_name(f"{file.name}.running")
 
 
 def is_alive(pid: int | None) -> bool:
