@@ -1,7 +1,7 @@
 {
   "name": "remcycle",
   "version": "0.1.0",
-  "description": "Nightly memory for Claude Code: gives a session what the dream accepted, recalls from the archive, and shows what waits for your ruling.",
+  "description": "Garbage collection for Claude Code's memory: gives a session what the dream accepted, recalls from the archive, and shows what waits for your ruling.",
   "author": {
     "name": "Lian Matsuo"
   },

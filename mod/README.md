@@ -1,6 +1,6 @@
 # The remcycle mod
 
-The part of [remcycle](https://github.com/lianmatsuo/remcycle) that runs inside Claude Code. remcycle gives Claude Code a nightly memory, built from its own sessions.
+The part of [remcycle](https://github.com/lianmatsuo/remcycle) that runs inside Claude Code. remcycle is garbage collection for Claude Code's memory: every night it rereads your sessions, keeps what you decided, and questions the notes that have gone stale.
 
 ## What it does
 

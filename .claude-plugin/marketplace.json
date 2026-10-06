@@ -1,6 +1,6 @@
 {
   "name": "remcycle",
-  "description": "remcycle: nightly memory for Claude Code, built from its own sessions",
+  "description": "remcycle: garbage collection for Claude Code's memory, from a nightly read of your sessions",
   "owner": {
     "name": "Lian Matsuo"
   },

@@ -1,6 +1,8 @@
 <h1 align="center">remcycle</h1>
 
-<p align="center">A Claude Code mod that gives it a nightly memory, built from its own sessions.</p>
+<p align="center"><strong>Garbage collection for Claude Code's memory.</strong></p>
+
+<p align="center">A mod that rereads your sessions every night and puts stale, repeated and contradictory notes to you before they mislead the next session.</p>
 
 <p align="center">
   <a href="https://github.com/lianmatsuo/remcycle/actions/workflows/check.yml"><img src="https://github.com/lianmatsuo/remcycle/actions/workflows/check.yml/badge.svg" alt="Checks"></a>
