@@ -36,7 +36,7 @@ The machine you are on may hold its owner's real archive and memory, under `~/.l
 - It runs inside Claude Code through the mods API. Claude Code writes that API, as the installed version declares it, to `mod/.claude-plugin/types/claude-code/index.d.ts` each time it loads the mod, and the gate has it do so. Look names up there.
 - Its tests use Claude Code's own kit, `claude-code/testing`, and stand in for the `dream` command.
 - The mod reaches remcycle only by running `dream` and reading what it prints. Put logic in the command, with its test, and let the mod call it.
-- A copy of the mod installed from GitHub updates only when `version` in `mod/.claude-plugin/plugin.json` changes, and it changes only in a release.
+- People install the mod from the tag of the latest release, which `.claude-plugin/marketplace.json` names, so a change to `mod/` reaches them at the next release. `claude --plugin-dir mod` starts a session with the working copy.
 
 ## Pull requests
 
@@ -46,4 +46,4 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org): the 
 
 ## Releases
 
-A release is a signed tag that the maintainer pushes, and [RELEASING.md](RELEASING.md) has its steps. The version in `pyproject.toml`, `uv.lock` and the mod's manifest changes only there.
+A release is a signed tag that the maintainer pushes, and [RELEASING.md](RELEASING.md) has its steps. The version in `pyproject.toml`, `uv.lock` and the mod's manifest, and the tag in the marketplace file, change only there.

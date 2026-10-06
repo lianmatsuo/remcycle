@@ -27,7 +27,7 @@ Claude Code starts every session fresh, and the notes it keeps about your projec
 You need [Claude Code](https://claude.com/claude-code) 2.1.287 or later and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv tool install git+https://github.com/lianmatsuo/remcycle
+uv tool install remcycle
 claude plugin marketplace add lianmatsuo/remcycle
 claude plugin install remcycle@remcycle
 ```
@@ -50,7 +50,7 @@ Set up remcycle for me. Clone https://github.com/lianmatsuo/remcycle into ~/remc
 
 Claude installs the command, asks which projects to leave out, and builds the archive. It asks you before loading the mod in every session, which also starts the daily dream, and asks how much of your history that dream should read. You can say no to either and turn it on later.
 
-Set up this way, remcycle runs from that folder, so it has to stay where it is. [Removing it](docs/reference.md#removing-it) says how to undo each part.
+The folder is only read for its guide, and can be deleted afterwards. [Removing it](docs/reference.md#removing-it) says how to undo each part.
 
 ## The panel
 

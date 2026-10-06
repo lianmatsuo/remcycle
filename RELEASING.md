@@ -2,9 +2,11 @@
 
 A release is a signed tag, `vX.Y.Z`, on a commit of `main`. Pushing the tag starts [the release workflow](.github/workflows/release.yml), which publishes the `dream` command to PyPI and creates the GitHub release.
 
+Nothing reaches anyone between releases. The command is installed from PyPI, and the mod from the tag that `.claude-plugin/marketplace.json` names, so `main` can move freely.
+
 ## The version
 
-One version covers the command and the mod. It is written in `pyproject.toml`, `uv.lock` and `mod/.claude-plugin/plugin.json`, a test fails when they differ, and it changes only in a release.
+One version covers the command and the mod. It is written in `pyproject.toml`, `uv.lock` and `mod/.claude-plugin/plugin.json`, and as the tag in `.claude-plugin/marketplace.json`. A test fails when they differ, and they change only in a release.
 
 Before 1.0, a release that adds something raises the middle number, and one that only fixes raises the last. This lists what is going out:
 
@@ -24,7 +26,7 @@ git log vPREVIOUS..origin/main --format=%s
 
 3. **Open the pull request.** Commit as `chore(release): X.Y.Z`, open it, and wait for `gate`.
 
-4. **Tag and push.** The tag goes on the commit that passed, and `main` and the tag arrive together:
+4. **Tag and push.** The tag goes on the commit that passed. `main` and the tag arrive together, because from that commit on the marketplace file on `main` names the tag:
 
    ```bash
    git tag -s vX.Y.Z -m "remcycle X.Y.Z" release/X.Y.Z
@@ -38,6 +40,7 @@ git log vPREVIOUS..origin/main --format=%s
    ```bash
    gh release view vX.Y.Z
    uvx --refresh --from remcycle==X.Y.Z dream --version
+   claude plugin update remcycle@remcycle
    ```
 
 ## Publishing needs no token

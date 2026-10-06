@@ -8,25 +8,17 @@ The quicker way is to [let Claude set it up](setup-with-claude.md). By hand:
 
 It needs Python 3.12 or later, [uv](https://docs.astral.sh/uv/), git, and Claude Code signed in on the same machine. The mod needs Claude Code 2.1.287 or later in the terminal, or 2.1.286 in the desktop app. There are no other dependencies.
 
-Without a clone:
-
 ```bash
-uv tool install git+https://github.com/lianmatsuo/remcycle
+uv tool install remcycle
 claude plugin marketplace add lianmatsuo/remcycle
 claude plugin install remcycle@remcycle
 ```
 
-The first line puts the `dream` command on your `PATH`. The other two install the mod as a Claude Code plugin, and it loads in the next session you start. To update later, run `uv tool upgrade remcycle` and `claude plugin update remcycle@remcycle`. The first follows the repository. The second brings a new copy of the mod only when a release has raised its version, and the command stays compatible with the last released mod in between. `dream --version` says which version of the command is installed.
+The first line puts the `dream` command on your `PATH`. The other two install the mod as a Claude Code plugin, and it loads in the next session you start. To update later, run `uv tool upgrade remcycle` and `claude plugin update remcycle@remcycle`. Each brings the latest release, so running both keeps the command and the mod on the same version. `dream --version` says which version of the command is installed.
 
-From a clone, which is what the setup guide does and what you want for working on remcycle:
+A command installed from GitHub or from a clone, as it was before remcycle was on PyPI, does not follow releases. `uv tool install --reinstall remcycle` replaces it with the released one.
 
-```bash
-uv tool install --editable .
-claude plugin marketplace add ./
-claude plugin install remcycle@remcycle
-```
-
-The command and the mod then both run from the clone. It has to stay where it is, and `git pull` updates both. The examples below use `uv run dream`, which works from the clone without installing.
+To work on remcycle, clone it: [CONTRIBUTING.md](../CONTRIBUTING.md) says how to start. The examples below use `uv run dream`, which runs the command from a clone without installing it. With the command installed, leave `uv run` off.
 
 ## Archive
 

@@ -14,7 +14,7 @@ The part of [remcycle](https://github.com/lianmatsuo/remcycle) that runs inside 
 The mod does its work by running remcycle's `dream` command, so that has to be installed too:
 
 ```bash
-uv tool install git+https://github.com/lianmatsuo/remcycle
+uv tool install remcycle
 ```
 
 Without it the mod loads and does nothing: a conversation starts unchanged, and `recall` answers that remcycle could not be reached.

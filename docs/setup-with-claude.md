@@ -1,10 +1,10 @@
 # Setting up remcycle, for Claude
 
-You are setting up remcycle on this person's machine. Work through the steps in order, finishing each before the next. `CLONE` below stands for the absolute path of the folder you cloned: the parent of this file's folder.
+You are setting up remcycle on this person's machine. Work through the steps in order, finishing each before the next.
 
 Two steps are marked **Ask first**: the mod in every session, which also starts the daily dream, and how much history that dream reads. Between them they change how the person's Claude Code runs and spend their model usage. At each one, say in a sentence or two what it will do and what it costs, wait, and go on only with an answer. A no skips that step, and the steps after it still work.
 
-Beyond those two, the steps write only to `CLONE`, to remcycle's own folders (`~/.config/remcycle` and `~/.local/share/remcycle`) and, in step 2, to uv's tool folders. For any other change you find you need, such as a line in a shell profile, say what it is and wait for a yes.
+Beyond those two, the steps write only to remcycle's own folders (`~/.config/remcycle` and `~/.local/share/remcycle`) and, in step 2, to uv's tool folders. For any other change you find you need, such as a line in a shell profile, say what it is and wait for a yes.
 
 If a step fails, stop there. Report the error text and which steps are done, and let the person decide what happens next.
 
@@ -20,13 +20,13 @@ Done when both answer, or you have told the person which is missing and what tha
 
 ## 2. Install the command
 
-From inside `CLONE`:
-
 ```bash
-uv tool install --editable .
+uv tool install --reinstall remcycle
 ```
 
-Done when `dream --help` lists its commands.
+This installs the latest release from PyPI. `--reinstall` replaces a copy installed earlier from GitHub or from a clone, which would not follow releases.
+
+Done when `dream --version` prints a version.
 
 If `dream` is not found, the folder that `uv tool dir --bin` prints is missing from the path. For the rest of this setup use `"$(uv tool dir --bin)/dream"` in place of `dream`. Tell the person that `uv tool update-shell` adds that folder to their shell profile, and that until it is there the mod cannot find the command either. Run it with their yes.
 
@@ -69,20 +69,18 @@ Done when the person has seen both lines and, where they named folders, agrees t
 
 ## 5. The mod, and with it the daily dream: Ask first
 
-The mod hands each new session what the dream learned, gives Claude a `recall` tool, and adds the `/remcycle` panel. It installs as a Claude Code plugin from this clone, and Claude Code then loads it in every session.
+The mod hands each new session what the dream learned, gives Claude a `recall` tool, and adds the `/remcycle` panel. It installs as a Claude Code plugin from remcycle's repository on GitHub, at the tag of the latest release, and Claude Code then loads it in every session.
 
 It also starts the daily dream. Once a day, the first session after 20 hours starts `dream run` in the background, which sends each new session's prose to the model through the person's own Claude Code. For a project with unfinished work it also sends the messages of that repository's recent commits and merged pull requests. The cost grows with the number and length of the sessions: on the author's machine one long session cost about $0.60 at API prices, and 28 sessions cost $13. The person can keep the mod and turn only the dream off, now or later, with `dream daily off`. Checking the mod takes one short model call.
-
-**Validate.** `claude plugin validate CLONE/mod` has to pass.
 
 **Install.**
 
 ```bash
-claude plugin marketplace add CLONE
+claude plugin marketplace add lianmatsuo/remcycle
 claude plugin install remcycle@remcycle
 ```
 
-The first line registers the clone as a place to install plugins from, and the second installs the mod from it. `claude plugin list` then shows `remcycle@remcycle` as enabled. Where it is listed already, leave it as it is.
+The first line registers the repository as a place to install plugins from, and the second installs the mod from it. `claude plugin list` then shows `remcycle@remcycle` as enabled. Where it is listed already, leave it as it is.
 
 **Confirm.** Done when this prints `WORKING`:
 
@@ -121,7 +119,7 @@ Tell the person, in a few lines:
 - whether the mod and the daily dream are on, and which history the dream reads;
 - with the mod on: `/remcycle` in any new session opens the panel, showing what needs their ruling, what was learned and what is left open;
 - with the daily dream on: the first session after 20 hours starts it in the background, at most once a day; its output goes to `~/.local/share/remcycle/daily.log` and its reports under `~/.local/share/remcycle/reports/`; `dream daily off`, or the switch in the panel, turns it off;
-- `CLONE` has to stay where it is, because the command and the mod run from it, and `git pull` there updates both;
+- `uv tool upgrade remcycle` and `claude plugin update remcycle@remcycle` bring the next release, and the folder this guide was read from is no longer needed;
 - three commands are theirs to ask for by name: `dream publish`, which writes into the memory Claude Code itself loads; `dream purge`, which deletes archived sessions; and `dream review`, which costs model usage on a large memory folder;
 - [Removing it](reference.md#removing-it) says how to undo each part.
 
