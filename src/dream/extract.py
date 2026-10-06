@@ -10,6 +10,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass
@@ -448,17 +449,7 @@ class ClaudeCode:
         # add to the prompt and run its own hooks around every call.
         plain = {name: value for name, value in os.environ.items() if name not in _PLUGIN_SWITCHES}
         try:
-            done = subprocess.run(
-                command,
-                input=prompt,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                timeout=self._timeout,
-                cwd=tempfile.gettempdir(),
-                env=plain,
-                check=False,
-            )
+            done = _run(command, prompt, plain, self._timeout)
         except (OSError, subprocess.TimeoutExpired) as e:
             raise ExtractionError(f"could not run Claude Code: {e}") from e
         try:
@@ -471,3 +462,28 @@ class ClaudeCode:
         if envelope.get("is_error") or not isinstance(answer, dict):
             raise ExtractionError(f"Claude Code gave no structured answer: {str(envelope.get('result'))[:300]}")
         return Reply(answer, float(envelope.get("total_cost_usd") or 0.0))
+
+
+def _run(command: list[str], prompt: str, env: Mapping[str, str], timeout: int) -> subprocess.CompletedProcess[str]:
+    """Run the command on the prompt, and stop it if it has not ended within the time limit."""
+    with subprocess.Popen(
+        command,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        cwd=tempfile.gettempdir(),
+        env=env,
+    ) as process:
+        try:
+            out, err = process.communicate(prompt, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            if sys.platform == "win32":
+                # Where `claude` is a batch file, the process started here is the shell that runs
+                # it, and stopping that alone leaves Claude Code running and this waiting for it.
+                # So everything the process started is stopped with it.
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)], capture_output=True, check=False)
+            process.kill()
+            raise
+    return subprocess.CompletedProcess(command, process.returncode, out, err)

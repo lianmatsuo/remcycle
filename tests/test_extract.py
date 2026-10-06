@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import time
 
 import pytest
 
@@ -161,8 +162,13 @@ print(json.dumps({"structured_output": {"args": sys.argv[1:], "env": env}, "tota
 @pytest.fixture
 def claude(tmp_path, monkeypatch):
     """A stand-in for the `claude` command, first on the path: it answers with the arguments and environment it was given."""
+    stand_in_for_claude(tmp_path, monkeypatch, STAND_IN)
+
+
+def stand_in_for_claude(tmp_path, monkeypatch, does):
+    """Put a `claude` command first on the path that runs the Python program `does`."""
     program = tmp_path / "claude.py"
-    program.write_text(STAND_IN, encoding="utf-8", newline="\n")
+    program.write_text(does, encoding="utf-8", newline="\n")
     if sys.platform == "win32":
         # Windows starts a command of this kind from a batch file, as it does a Claude Code installed with npm.
         (tmp_path / "claude.cmd").write_text(f'@"{sys.executable}" "{program}" %*\n', encoding="utf-8", newline="\r\n")
@@ -224,6 +230,16 @@ def test_on_windows_a_program_is_never_taken_from_the_folder_the_command_runs_in
 
     with pytest.raises(ExtractionError, match="no claude command"):
         ClaudeCode()("what did this session establish?")
+
+
+def test_a_model_call_that_does_not_answer_is_given_up_on_at_its_time_limit(tmp_path, monkeypatch):
+    stand_in_for_claude(tmp_path, monkeypatch, "import time\n\ntime.sleep(120)\n")
+    began = time.monotonic()
+
+    with pytest.raises(ExtractionError, match="could not run Claude Code"):
+        ClaudeCode(timeout=1)("what did this session establish?")
+
+    assert time.monotonic() - began < 60
 
 
 def test_a_machine_without_claude_code_is_an_error_that_says_so(tmp_path, monkeypatch):
