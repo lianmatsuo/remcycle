@@ -288,6 +288,46 @@ test('the pane opens on a summary of what needs the person, what is remembered a
   await desktop.unmount()
 })
 
+test('a wide pane lays its content out in two columns, and the tiles keep their own size', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  commandLine(on, { status: JSON.stringify(STATUS) })
+  const at = (bodyColumns: number) => $.ui.mount({ ...PANE, surface: 'desktop', props: { ...PANE.props, bodyColumns } })
+  const widths = async (ui: Awaited<ReturnType<typeof at>>) =>
+    Promise.all(['body', 'attention', 'record', 'tiles'].map(async key => (await ui.find({ key }))?.props.width))
+
+  const narrow = await at(48)
+  await narrow.press({ key: 'refresh' })
+  expect(await widths(narrow)).toEqual([48, 48, 48, 48])
+  expect((await narrow.find({ key: 'columns' }))?.props.flexDirection).toBe('column')
+  await narrow.unmount()
+
+  // Half of what is left once the gutter of 4 is taken out: (180 - 4) / 2.
+  const wide = await at(180)
+  expect(await widths(wide)).toEqual([180, 88, 88, 62])
+  expect((await wide.find({ key: 'columns' }))?.props.flexDirection).toBe('row')
+  await wide.unmount()
+
+  // A column stops at 96 however wide the pane is, so the two and their gutter come to 196.
+  const widest = await at(400)
+  expect(await widths(widest)).toEqual([196, 96, 96, 62])
+  await widest.unmount()
+})
+
+test("a question's buttons move onto a second row when the pane is too narrow for one", async ($, on) => {
+  mock.clock(on, { now: NOW })
+  commandLine(on, { status: JSON.stringify(STATUS) })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop', props: { ...PANE.props, bodyColumns: 48 } })
+  await ui.press({ key: 'refresh' })
+  const actions = await ui.find({ key: 'question-actions' })
+
+  expect(actions?.props.flexWrap).toBe('wrap')
+  expect(actions?.props.rowGap).toBe(1)
+  expect(actions?.props.columnGap).toBe(1)
+  expect(await ui.find({ key: 'discuss' })).toBeDefined()
+  expect(await ui.find({ key: 'next' })).toBeDefined()
+})
+
 test('questions come one at a time with both sides, and a ruling is passed on', async ($, on) => {
   mock.clock(on, { now: NOW })
   const calls = commandLine(on, { status: JSON.stringify(STATUS), resolve: 'deploy-target: took the new claim\n' })

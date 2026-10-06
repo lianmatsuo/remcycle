@@ -11,6 +11,13 @@ const SETTLE = 'mcp__remcycle__settle_memory'
 const MEMORY_FILE = /\/memory\/(?:[^/]+\/)?[^/]+\.md$/
 const LATELY = 3
 const PER_PAGE = 12
+// All in character cells. A pane this wide or wider is laid out in two columns, with a gutter between them.
+const TWO_COLUMNS_FROM = 120
+const GUTTER = 4
+// Past this a column's rows are too long to read across.
+const WIDEST = 96
+// About the width the tiles are drawn for. A surface stretches a drawing to the box it is in.
+const TILES_ACROSS = 62
 const BRIEF = 80
 
 const status = atom({ plugin: 'remcycle', key: 'status' } as const, null)
@@ -625,10 +632,13 @@ export const register: Register = on => {
     // The terminal has no Svg, and its table answers the name with an element that draws nothing.
     const Svg = e.surface === 'terminal' ? null : $.ui.resolve(e).Svg
     const now = readable(await read($, status))
+    const isWide = e.props.bodyColumns >= TWO_COLUMNS_FROM
+    const column = isWide ? Math.min(WIDEST, Math.floor((e.props.bodyColumns - GUTTER) / 2)) : e.props.bodyColumns
+    const across = isWide ? 2 * column + GUTTER : column
 
     if (now === null) {
       return finished(
-        <Box flexDirection="column" rowGap={1}>
+        <Box key="body" flexDirection="column" rowGap={1} width={across}>
           <Text dimColor>No readable answer from the `dream` command yet.</Text>
           <Button key="refresh" label="Refresh" onPress={press('refresh', () => reset($))} />
         </Box>
@@ -721,7 +731,7 @@ export const register: Register = on => {
       const last = Math.min(rows.length, first + PER_PAGE)
 
       return finished(
-        <Box flexDirection="column" rowGap={1}>
+        <Box key="body" flexDirection="column" rowGap={1} width={across}>
           <Box justifyContent="space-between" alignItems="center">
             <Text bold>{shown === 'memories' ? 'All memories' : 'Left open'}</Text>
             <Button key="show-home" label="Back" onPress={press('show-home', () => show($, 'home'))} />
@@ -731,7 +741,18 @@ export const register: Register = on => {
               ? `${learned.length} learned from your sessions, ${unsourced.length} written before remcycle.`
               : 'Unfinished work earlier sessions left behind. New sessions here are told about it.'}
           </Text>
-          {rows.slice(first, last)}
+          {isWide ? (
+            <Box key="columns" columnGap={GUTTER} alignItems="flex-start">
+              <Box flexDirection="column" rowGap={1} width={column}>
+                {rows.slice(first, first + Math.ceil((last - first) / 2))}
+              </Box>
+              <Box flexDirection="column" rowGap={1} width={column}>
+                {rows.slice(first + Math.ceil((last - first) / 2), last)}
+              </Box>
+            </Box>
+          ) : (
+            rows.slice(first, last)
+          )}
           {rows.length > PER_PAGE && (
             <Box columnGap={1} alignItems="center">
               {first > 0 && <Button key="sooner" label="Previous" onPress={press('sooner', () => update($, page, n => Math.max(0, n - 1)))} />}
@@ -750,23 +771,8 @@ export const register: Register = on => {
     const findings = question?.reasons.length ?? 0
     const changed = ago(now.last_dream, clock)
 
-    return finished(
-      <Box flexDirection="column" rowGap={1}>
-        <Box justifyContent="space-between" alignItems="center">
-          <Box flexDirection="column">
-            <Text bold>{named(now.project)}</Text>
-            <Text dimColor>
-              {changed === ''
-                ? 'No dream has changed this yet'
-                : `Changed by a dream ${changed === 'now' ? 'just now' : `${changed} ago`}`}
-            </Text>
-          </Box>
-          <Box columnGap={1} flexShrink={0}>
-            {viewing !== null && <Button key="home-project" label="Back" onPress={press('home-project', () => look($, null))} />}
-            <Button key="refresh" label="Refresh" onPress={press('refresh', () => reset($))} />
-          </Box>
-        </Box>
-        {saving !== null ? <Text color="warning">{`Saving: ${saving}…`}</Text> : did !== null && <Text dimColor>{did}</Text>}
+    const attention = (
+      <Box key="attention" flexDirection="column" rowGap={1} width={column}>
         {Svg === null ? (
           <Box columnGap={3} flexWrap="wrap">
             {now.waiting.length > 0 ? (
@@ -778,13 +784,15 @@ export const register: Register = on => {
             <Text>{`Index ${full.percent}% full`}</Text>
           </Box>
         ) : (
-          <Svg
-            source={tiles(now)}
-            alt={
-              `${now.waiting.length} need you. ${now.memories.length} memories in use, ` +
-              `${learned.length} learned from sessions. The index is ${full.percent}% full: ${full.of}.`
-            }
-          />
+          <Box key="tiles" width={Math.min(column, TILES_ACROSS)}>
+            <Svg
+              source={tiles(now)}
+              alt={
+                `${now.waiting.length} need you. ${now.memories.length} memories in use, ` +
+                `${learned.length} learned from sessions. The index is ${full.percent}% full: ${full.of}.`
+              }
+            />
+          </Box>
         )}
         {title('Needs you', question !== undefined && <Text dimColor>{`${now.waiting.length} left`}</Text>)}
         {question === undefined ? (
@@ -827,8 +835,8 @@ export const register: Register = on => {
             )}
             {question.withheld && <Text color="warning">Kept out of sessions until you rule.</Text>}
             {saving === null && (
-              <Box justifyContent="space-between">
-                <Box columnGap={1}>
+              <Box key="question-actions" justifyContent="space-between" flexWrap="wrap" columnGap={1} rowGap={1}>
+                <Box columnGap={1} rowGap={1} flexWrap="wrap">
                   <Button
                     key={`accept-${question.slot}`}
                     label={question.suggests === null ? 'Retire the memory' : 'Take the suggestion'}
@@ -840,7 +848,7 @@ export const register: Register = on => {
                     onPress={press(`keep-${question.slot}`, () => rule($, question.slot, false, question.suggests !== null))}
                   />
                 </Box>
-                <Box columnGap={1}>
+                <Box columnGap={1} rowGap={1} flexWrap="wrap">
                   <Button key="discuss" label="Add to chat" onPress={press('discuss', () => discuss($, question, now.project))} />
                   {now.waiting.length > 1 && (
                     <Button key="next" label="Skip" onPress={press('next', () => update($, at, n => n + 1))} />
@@ -857,6 +865,10 @@ export const register: Register = on => {
             <Button key={`elsewhere-${n}`} label="Open" onPress={press(`elsewhere-${n}`, () => look($, other.project))} />
           </Box>
         ))}
+      </Box>
+    )
+    const record = (
+      <Box key="record" flexDirection="column" rowGap={1} width={column}>
         {title(
           'Learned lately',
           <Button key="show-memories" label={`All ${now.memories.length}`} onPress={press('show-memories', () => show($, 'memories'))} />,
@@ -883,6 +895,36 @@ export const register: Register = on => {
         {threads.slice(0, LATELY).map(thread => threadRow(thread, false))}
         {now.closed_lately.length > 0 && title('Closed lately', <Text dimColor>{String(now.closed_lately.length)}</Text>)}
         {now.closed_lately.slice(0, LATELY).map(closure => closureRow(closure, false))}
+      </Box>
+    )
+
+    return finished(
+      <Box key="body" flexDirection="column" rowGap={1} width={across}>
+        <Box justifyContent="space-between" alignItems="center">
+          <Box flexDirection="column">
+            <Text bold>{named(now.project)}</Text>
+            <Text dimColor>
+              {changed === ''
+                ? 'No dream has changed this yet'
+                : `Changed by a dream ${changed === 'now' ? 'just now' : `${changed} ago`}`}
+            </Text>
+          </Box>
+          <Box columnGap={1} flexShrink={0}>
+            {viewing !== null && <Button key="home-project" label="Back" onPress={press('home-project', () => look($, null))} />}
+            <Button key="refresh" label="Refresh" onPress={press('refresh', () => reset($))} />
+          </Box>
+        </Box>
+        {saving !== null ? <Text color="warning">{`Saving: ${saving}…`}</Text> : did !== null && <Text dimColor>{did}</Text>}
+        <Box
+          key="columns"
+          flexDirection={isWide ? 'row' : 'column'}
+          columnGap={GUTTER}
+          rowGap={1}
+          alignItems={isWide ? 'flex-start' : 'stretch'}
+        >
+          {attention}
+          {record}
+        </Box>
       </Box>
     )
   })
