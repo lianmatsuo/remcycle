@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.0
+
+- **Windows.** The `dream` command and the mod now run on Windows as well as macOS and Linux. This is new: the command's tests pass on Windows, but remcycle has not yet been run there with Claude Code, so the mod and the daily dream are untried on it. It keeps its files in the same folders as elsewhere, `.config\remcycle` and `.local\share\remcycle` under your user folder.
+- **A daily dream that died no longer holds up the next one.** A dream cut short, by a restart for one, could read as still running for as long as some other program had its process number, and no new one started until that program ended.
+- **One project no longer stops a dream.** A project whose memory the system would not let the dream move into place is left for the next dream, with the reason in the report, and the other projects are still read.
+- **What you said for all your work is not lost when it cannot be saved.** A session that said something for every project now stays unread until that has been accepted.
+- **Excluded folders.** An entry in `exclude` written with a closing slash, such as `"/work/client/"`, now leaves out the sessions run in that folder itself, and not only those in the folders inside it.
+- **Memory names.** The dream could name a memory `memory`, and on a Mac's disk that was written over the index, `MEMORY.md`. Such a name is now refused.
+
+### Upgrading
+
+```bash
+uv tool upgrade remcycle
+claude plugin update remcycle@remcycle
+```
+
+If a daily dream is running while you upgrade, the panel says it stopped until it has finished.
+
 ## 0.3.0
 
 - **remcycle is on PyPI.** `uv tool install remcycle` installs the `dream` command, and `uv tool upgrade remcycle` brings the latest release.
