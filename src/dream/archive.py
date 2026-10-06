@@ -120,6 +120,18 @@ class Hit:
 
 
 @dataclass(frozen=True)
+class Recap:
+    """One archived session in brief."""
+
+    session_id: str
+    title: str | None
+    ended_at: str | None
+    turns: int
+    summary: str | None
+    """What the dream made of the session. None until it has read the session as it now stands."""
+
+
+@dataclass(frozen=True)
 class Undreamt:
     """A session the dream has not read, or has not read all of."""
 
@@ -322,11 +334,13 @@ class Archive:
             Hit(sid, seq, Author(author), Kind(kind), *rest, matched_all) for sid, seq, author, kind, *rest in rows
         ]
 
-    def show(self, session: str, *, first: int = 0, last: int | None = None) -> list[Turn]:
-        """One session's turns as archived, from `first` to `last` inclusive.
+    def recap(self, session: str) -> Recap:
+        """One session in brief. `session` is a session id or any prefix that picks out a single session."""
+        session_id = self._one(session)
+        title, ended_at = self._db.execute("SELECT title, ended_at FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
+        return Recap(session_id, title, ended_at, self._turn_count(session_id), (self.digest(session_id) or {}).get("summary") or None)
 
-        `session` is a session id or any prefix of one that picks out a single session.
-        """
+    def _one(self, session: str) -> str:
         matches = self._db.execute(
             "SELECT session_id FROM sessions WHERE substr(session_id, 1, length(:prefix)) = :prefix", {"prefix": session}
         ).fetchall()
@@ -335,6 +349,14 @@ class Archive:
         if len(matches) > 1:
             raise LookupError(f"{len(matches)} archived sessions start with {session!r}; give more of the id")
         ((session_id,),) = matches
+        return session_id
+
+    def show(self, session: str, *, first: int = 0, last: int | None = None) -> list[Turn]:
+        """One session's turns as archived, from `first` to `last` inclusive.
+
+        `session` is a session id or any prefix of one that picks out a single session.
+        """
+        session_id = self._one(session)
         rows = self._db.execute(
             """
             SELECT seq, author, kind, text, uuid, timestamp FROM turns

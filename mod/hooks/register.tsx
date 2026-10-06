@@ -377,8 +377,10 @@ export const register: Register = on => {
       name: 'recall',
       description:
         'Search memory and the archive of past Claude Code sessions for what was said or decided. ' +
-        'Give `query` to get matching memories and the best-matching turns, each labelled session#turn. ' +
+        'Give `query` to get matching memories and the best-matching turns, each labelled session#turn, ' +
+        'then what each session found was, in brief. ' +
         'Give `also` with other ways of asking the same thing to widen the search. ' +
+        'Give `session` alone for the summary of that session. ' +
         'Give `session` with `first` and `last` to read those turns back word for word. ' +
         'Searches this project unless `everywhere` is true.',
       inputSchema: {
@@ -496,15 +498,18 @@ export const register: Register = on => {
 
   on('tool.call', { tool: RECALL }, async ($, e) => {
     const asked = e as Record<string, unknown>
+    const isWholeSession = asked.first === undefined && asked.last === undefined
     const args =
       typeof asked.session === 'string'
-        ? [
-            'show',
-            asked.session,
-            '--first',
-            String(asked.first ?? 0),
-            ...(asked.last === undefined ? [] : ['--last', String(asked.last)]),
-          ]
+        ? isWholeSession
+          ? ['show', asked.session, '--summary']
+          : [
+              'show',
+              asked.session,
+              '--first',
+              String(asked.first ?? 0),
+              ...(asked.last === undefined ? [] : ['--last', String(asked.last)]),
+            ]
         : [
             'search',
             ...(asked.everywhere === true ? ['--all-projects'] : []),

@@ -211,6 +211,15 @@ test('closing a thread that is not open, or without saying what finished it, is 
   expect(calls).toHaveLength(1)
 })
 
+test('recall gives a session in brief when asked for the session alone', async ($, on) => {
+  const calls = commandLine(on, { show: '7f3a9c2e  2026-10-01  Refund path  42 turns\nAgreed that refunds post to the ledger first.\n' })
+
+  const answer = await $.tool.call({ tool: 'mcp__remcycle__recall', session: '7f3a9c2e' })
+
+  expect(answer.result).toBe('7f3a9c2e  2026-10-01  Refund path  42 turns\nAgreed that refunds post to the ledger first.\n')
+  expect(calls).toEqual([['dream', 'show', '7f3a9c2e', '--summary']])
+})
+
 test('recall reads turns back when given a session', async ($, on) => {
   const calls = commandLine(on, { show: '#3 human\nalways use pnpm\n' })
 

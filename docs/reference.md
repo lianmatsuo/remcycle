@@ -26,7 +26,9 @@ Reads the session transcripts under `~/.claude/projects` into `~/.local/share/re
 uv run dream search retention sweep
 ```
 
-Matching memories first, found by name, alias or words, then the best-matching turns from the current repository's sessions. Each turn is labelled `session#turn`. What you typed ranks above what Claude wrote.
+Matching memories first, found by name, alias or words, then the best-matching turns from the current repository's sessions. Each turn is labelled `session#turn`. What you typed ranks above what Claude wrote. Last comes what each session it found was, in a few lines: the summary the dream wrote when it read that session.
+
+Among memories that match alike, the one needed most often comes first. A memory is needed each time you say it in a session and each time a search or a session looks it up, so a search that brings a memory up counts towards that.
 
 | Option | Effect |
 |---|---|
@@ -43,6 +45,12 @@ uv run dream show 7f3a9c2e --first 9 --last 12
 ```
 
 Prints those turns as archived. The session can be given by the start of its id.
+
+```bash
+uv run dream show 7f3a9c2e --summary
+```
+
+Prints what the session was in a few lines, in place of its turns: its day, title and length, and the summary the dream wrote. A session the dream has not read as it now stands has no summary yet.
 
 ## Dream
 
@@ -67,7 +75,7 @@ The dream works on its own copy of each project's memory under `~/.local/share/r
 
 Up to 60 entries the index is one line per entry. Past that it lists topics, and each topic has a page of its entries' lines. A topic's line names every memory on its page while the index has room. Lines are moved between the two, never rewritten. A review keeps the index one line per entry if, listed by topic, it leads the model to the right memory for fewer of the entries' probe questions. The memory Claude Code loads is not touched unless you pass `--publish`, and publishing is refused if that memory changed while the dream ran.
 
-With the mod loaded you do not need to publish for sessions to get what the dream learned: the mod hands each new session those memories, newest first, up to about 4,000 characters. Publishing is for changing what Claude Code itself holds, which a handed-over list cannot do: taking a retired memory out of what it loads, or shortening an index that is nearly full.
+With the mod loaded you do not need to publish for sessions to get what the dream learned: the mod hands each new session those memories, up to about 4,000 characters. What you said in the last two weeks comes first, newest first; older memories follow, the most needed first, so what is left out when room runs short was said once, long ago. Publishing is for changing what Claude Code itself holds, which a handed-over list cannot do: taking a retired memory out of what it loads, or shortening an index that is nearly full.
 
 ```bash
 uv run dream publish
@@ -96,7 +104,7 @@ The model step runs through your own Claude Code, headless (`claude -p`), with n
 `mod/` is a Claude Code mod (function hooks, early access). Once loaded it:
 
 - gives each new conversation what you have said applies to all your work, what the dream has learned about the project that Claude Code's own memory does not hold, and what earlier sessions in the project left open;
-- gives Claude a `recall` tool that searches memory and the archive, takes several phrasings at once, and reads turns back;
+- gives Claude a `recall` tool that searches memory and the archive, takes several phrasings at once, gives a past session in brief, and reads turns back word for word;
 - gives Claude a `close_thread` tool, and the names of the open threads, so a conversation closes a thread when it finishes one. It has to say what finished it, and the next dream checks the claim against that conversation's own transcript and reopens the thread if the work was not done;
 - brings the archive up to date when a session ends;
 - warns Claude when it reads a memory about a file that no longer exists;

@@ -16,7 +16,7 @@ except ImportError:  # Windows has no fcntl, and there commands do not take turn
     fcntl = None
 
 from dream import outside, review
-from dream.archive import NO_PROJECT, Archive, project_of
+from dream.archive import NO_PROJECT, Archive, Recap, project_of
 from dream.dreaming import GLOBAL, dream, key, publish_project, render, review_project
 from dream.extract import ClaudeCode
 from dream.gate import JUDGE_SCHEMA, JUDGE_SYSTEM, judge_with
@@ -91,11 +91,12 @@ def _search(archive: Archive, args: argparse.Namespace) -> int:
     else:
         project = project_of(str((args.project or Path.cwd()).resolve()))
     asked = " ".join(args.words)
-    remembered = (
-        []
-        if project is None
-        else [found for copy in (project, GLOBAL) for found in MemoryStore(args.memory / key(copy)).find(asked)]
-    )
+    remembered = []
+    for copy in () if project is None else (project, GLOBAL):
+        store = MemoryStore(args.memory / key(copy))
+        found = store.find(asked)
+        store.note_found([entry.slot for entry in found], _now())
+        remembered += found
     for found in remembered:
         print(f"memory      {found.slot} ({found.matched})  {found.statement}")
     hits = archive.search(
@@ -115,10 +116,37 @@ def _search(archive: Archive, args: argparse.Namespace) -> int:
         day = (hit.timestamp or "")[:10]
         print(f"{day}  {hit.author:<10} {hit.session_id[:8]}#{hit.seq}  {hit.title or ''}".rstrip())
         print(f"    {' '.join(hit.snippet.split())}")
+    recaps = [archive.recap(session_id) for session_id in dict.fromkeys(hit.session_id for hit in hits)]
+    if any(recap.summary for recap in recaps):
+        print("\nWhat these sessions were (dream show SESSION --summary gives the whole of one):")
+    for recap in recaps:
+        if recap.summary:
+            print(_heading(recap))
+            print(f"    {_clipped(' '.join(recap.summary.split()))}")
     return 0
 
 
+_BRIEF = 300
+
+
+def _clipped(text: str) -> str:
+    """The text, cut at a word once it runs past what a search result has room for."""
+    return text if len(text) <= _BRIEF else text[:_BRIEF].rsplit(" ", 1)[0].rstrip(".,;:") + "…"
+
+
+def _heading(recap: Recap) -> str:
+    """A session on one line: the start of its id, its day, its title and its length."""
+    named = [recap.session_id[:8], (recap.ended_at or "")[:10], recap.title or "", f"{recap.turns} turns"]
+    return "  ".join(part for part in named if part)
+
+
 def _show(archive: Archive, args: argparse.Namespace) -> int:
+    if args.summary:
+        recap = archive.recap(args.session)
+        print(_heading(recap))
+        print(recap.summary or "The dream has not read this session as it now stands, so it has no summary.")
+        print("Read its turns back with --first and --last.")
+        return 0
     for turn in archive.show(args.session, first=args.first, last=args.last):
         print(f"#{turn.seq} {turn.author} {turn.timestamp or ''}".rstrip())
         print(f"{turn.text}\n")
@@ -373,6 +401,7 @@ def _parser(settings: Settings) -> argparse.ArgumentParser:
     show.add_argument("session", help="session id, or the start of one")
     show.add_argument("--first", type=int, default=0, metavar="N")
     show.add_argument("--last", type=int, metavar="N")
+    show.add_argument("--summary", action="store_true", help="what the dream made of the session, in place of its turns")
 
     return parser
 

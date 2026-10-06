@@ -356,6 +356,20 @@ def test_reading_back_a_session_that_cannot_be_pinned_down_is_an_error(root, arc
         archive.show("7f3a9c2e")
 
 
+def test_a_session_is_recalled_in_brief_by_what_the_dream_made_of_it(root, archive):
+    put_ledger_session(root)
+    archive.ingest(root)
+
+    unread = archive.recap("7f3a9c2e")
+    assert (unread.session_id, unread.turns, unread.summary) == (LEDGER_SESSION, 4, None)
+
+    archive.keep_digest(LEDGER_SESSION, {"summary": "Agreed that every refund posts to the ledger first."})
+
+    assert archive.recap("7f3a9c2e").summary == "Agreed that every refund posts to the ledger first."
+    with pytest.raises(LookupError, match="no archived session"):
+        archive.recap("deadbeef")
+
+
 def test_a_session_waits_for_its_dream_until_one_is_recorded_and_again_once_it_grows(root, archive):
     rows = [human("pin the base image version", 0)]
     put_session(root, "s-1", rows, cwd="/work/shop")

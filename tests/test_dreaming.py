@@ -4,13 +4,13 @@ import pytest
 
 import dream.dreaming
 from dream.archive import Archive
-from dream.claims import Status
+from dream.claims import Claim, ClaimType, Evidence, Provenance, Scope, Status
 from dream.dreaming import dream as run_dream
 from dream.dreaming import publish_project, review_project
 from dream.extract import ExtractionError, Reply
 from dream.memory import MemoryStore
 from dream.outside import Finished, Witnessed
-from dream.reconcile import Review, Withhold
+from dream.reconcile import Add, Confirm, Review, Withhold
 from dream.session import context, status
 from support import assistant_text, human, put_session
 
@@ -281,6 +281,30 @@ def test_a_new_session_is_handed_what_the_dream_learned_that_claude_codes_own_me
     (claude / "-work-shop" / "memory" / "package-manager.md").write_text((copy / "package-manager.md").read_text())
     after = context(tmp_path / "memory", PROJECT, now="2026-10-03T09:00:00+00:00", live_root=claude)
     assert after["learned"] == [{"slot": "ci-runner", "statement": "CI is self-hosted."}]
+
+
+def test_a_new_session_is_handed_what_is_new_first_and_then_what_has_been_needed_most(tmp_path):
+    def said(slot, statement, at):
+        return Claim(slot, ClaimType.PREFERENCE, Scope.PROJECT, statement, "", Provenance.HUMAN, Evidence("s-first", 0, 0), at)
+
+    store = MemoryStore(tmp_path / "memory" / "-work-shop")
+    store.folder.mkdir(parents=True)
+    store.apply(
+        [
+            Add(said("old-once", "Old, said once.", "2026-08-01T09:00:00Z")),
+            Add(said("old-again", "Old, said again.", "2026-07-01T09:00:00Z")),
+            Add(said("fresh", "Fresh, said once.", "2026-10-01T09:00:00Z")),
+        ]
+    )
+    store.apply([Confirm("old-again", Evidence("s-later", 1, 1), "2026-07-20T09:00:00Z")])
+
+    def handed(**limits):
+        given = context(tmp_path / "memory", PROJECT, now="2026-10-06T09:00:00+00:00", live_root=tmp_path / "claude", **limits)
+        return [memory["slot"] for memory in given["learned"]], given["learned_more"]
+
+    assert handed() == (["fresh", "old-again", "old-once"], 0)
+    # Room for the first two statements only: what was said once, long ago, is what stays behind.
+    assert handed(room=40) == (["fresh", "old-again"], 1)
 
 
 def test_status_lists_what_the_dream_holds_for_a_project_and_what_waits_on_the_person(archive, claude, tmp_path):

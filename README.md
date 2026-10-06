@@ -24,7 +24,7 @@ flowchart LR
 - **Sessions that start informed.** Each new session is handed what you have said applies to all your work, what was learned about the project, and what earlier sessions left unfinished.
 - **Memory you can trust.** Every memory points at the words it came from. Something only Claude concluded is never loaded as if you had said it, and a note you already had is never replaced without asking you.
 - **A list that stays short.** Stale, repeated and contradictory notes are found and put to you, so what loads at the start of a session does not keep growing.
-- **Recall.** Claude can search everything that was said in past sessions and read it back word for word.
+- **Recall.** Claude can search everything that was said in past sessions, get any of them in brief, and read the exact words back when it needs them.
 - **A panel.** `/remcycle` shows what needs your ruling, what was learned lately and what is left open.
 - **Everything on your machine.** The archive is one local file. The only thing that leaves is what the dream sends to the model, through your own Claude Code.
 

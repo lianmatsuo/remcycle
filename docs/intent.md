@@ -153,6 +153,12 @@ Built after the first full run, from the unbuilt list and from a comparison with
 - **Pruning.** Facts about files that have gone are withheld. An entry the person corrected the assistant for following leaves the index. Both wait for a ruling.
 - **The review.** `dream review` reads existing memories, gives each a topic and a probe, and questions the dated, the repeated and the contradictory, on quoted evidence only.
 
+Built from a second comparison with gbrain's dream cycle:
+
+- **Sessions in brief.** The dream already wrote a summary of each session it read and nothing used it. Search now ends with what each session it found was, and `dream show --summary` gives one session's. The recall tool, given a session and no turns, returns that summary where it used to return every turn. Rejected: summaries in place of the turns, for the reason the archive keeps verbatim text.
+- **Need.** A memory is needed each time it is said and each time a search or a session looks it up. That one count orders equal search matches, decides which index lines are dropped last, and orders what a session is handed after the last two weeks' memories. Rejected: questioning memories that are never looked up. No look-up had been recorded on the development machine when this was built, so it would have questioned every memory.
+- Not taken: reading mail, meetings and notes, and pages about people and companies. The first is outside what remcycle reads, and the second grows every night, which is the accumulation the design exists to prevent.
+
 Still not built:
 
 - Vector search and a reranker. Both need an embedding model or a service, so they would be an optional backend.

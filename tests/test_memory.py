@@ -227,6 +227,31 @@ def test_reading_a_memory_is_counted_and_a_fact_whose_file_is_gone_carries_a_war
     assert store.reads("deploy-script") == 2
 
 
+def test_how_much_a_memory_is_needed_counts_each_time_it_was_said_and_each_time_it_was_looked_up(folder):
+    store = MemoryStore(folder)
+    store.apply([Add(claim("package-manager", "Use pnpm for JS projects."))])
+    assert store.needed("package-manager") == 1
+
+    store.apply([Confirm("package-manager", Evidence("another-session", 10, 11), "2026-10-04T09:00:00Z")])
+    store.note_read("package-manager", folder, "2026-10-05T09:00:00Z")
+    store.note_found(["package-manager", "no-such-memory"], "2026-10-06T09:00:00Z")
+
+    assert store.needed("package-manager") == 4
+    assert store.needed("deploy_target") == 0
+    assert store.needed("no-such-memory") == 0
+
+
+def test_among_memories_that_match_a_search_alike_the_one_needed_most_comes_first(folder):
+    store = MemoryStore(folder)
+    store.apply([Add(claim("lint-js", "Lint JS with biome.")), Add(claim("format-js", "Format JS with biome."))])
+    first, second = [found.slot for found in store.find("biome")]
+
+    store.note_found([second], "2026-10-06T09:00:00Z")
+
+    assert [found.slot for found in store.find("biome")] == [second, first]
+    assert [found.slot for found in store.find("lint js")] == ["lint-js"]
+
+
 def test_an_index_over_its_budget_sheds_the_oldest_unread_legacy_lines_and_keeps_every_file(folder):
     for n, modified in enumerate(["2026-05-01", "2026-09-01", "2026-07-01"]):
         (folder / f"note-{n}.md").write_text(
@@ -246,6 +271,17 @@ def test_an_index_over_its_budget_sheds_the_oldest_unread_legacy_lines_and_keeps
         "- [Note 0](note-0.md) — n0\n- [Package manager](package-manager.md) — Use pnpm for JS projects.\n"
     )
     assert sorted(p.name for p in folder.glob("note-*.md")) == ["note-0.md", "note-1.md", "note-2.md"]
+
+
+def test_an_index_over_its_budget_sheds_what_was_said_once_before_what_was_said_again(folder):
+    store = MemoryStore(folder)
+    store.apply([Add(claim("package-manager", "Use pnpm for JS projects.")), Add(claim("ci-runner", "CI is self-hosted."))])
+    store.apply([Confirm("package-manager", Evidence("another-session", 10, 11), "2026-10-04T09:00:00Z")])
+
+    shed = store.fit_index(max_lines=1, max_bytes=10_000)
+
+    assert shed == ["deploy_target", "ci-runner"]
+    assert (folder / "MEMORY.md").read_text() == "- [Package manager](package-manager.md) — Use pnpm for JS projects.\n"
 
 
 def test_an_entry_withheld_for_a_reason_waits_for_the_person_and_returns_if_they_keep_it(folder):

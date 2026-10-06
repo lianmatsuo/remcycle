@@ -3,11 +3,13 @@ import json
 
 import dream.cli
 from dream.archive import Archive
+from dream.claims import Claim, ClaimType, Evidence, Provenance, Scope
 from dream.cli import main
 from dream.dreaming import key
 from dream.extract import Thread
 from dream.memory import MemoryStore
 from dream.mirror import Mirror
+from dream.reconcile import Add
 from support import assistant_text, human, put_session
 
 
@@ -39,6 +41,91 @@ def test_ingest_search_and_show_from_the_command_line(tmp_path, capsys, monkeypa
 
     assert main(["show", "--db", db, "deadbeef"]) == 1
     assert "no archived session" in capsys.readouterr().err
+
+
+def test_a_session_is_shown_in_brief_once_the_dream_has_read_it(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no-settings"))
+    root = tmp_path / "projects"
+    session_id = "7f3a9c2e-1b4d-4e6f-8a90-123456789abc"
+    put_session(
+        root,
+        session_id,
+        [
+            human("should refunds bypass the ledger", 0),
+            assistant_text("No: every refund must post to the ledger first.", 1),
+            {"type": "custom-title", "customTitle": "Refund path"},
+        ],
+    )
+    db = tmp_path / "archive.db"
+    main(["ingest", "--root", str(root), "--db", str(db)])
+    capsys.readouterr()
+
+    assert main(["show", "--db", str(db), "7f3a9c2e", "--summary"]) == 0
+    unread = capsys.readouterr().out
+    assert unread.splitlines()[0] == "7f3a9c2e  2026-10-01  Refund path  2 turns"
+    assert "The dream has not read this session as it now stands" in unread
+    assert "should refunds bypass the ledger" not in unread
+
+    Archive(db).keep_digest(session_id, {"summary": "Agreed that every refund posts to the ledger first."})
+
+    assert main(["show", "--db", str(db), "7f3a9c2e", "--summary"]) == 0
+    assert capsys.readouterr().out == (
+        "7f3a9c2e  2026-10-01  Refund path  2 turns\n"
+        "Agreed that every refund posts to the ledger first.\n"
+        "Read its turns back with --first and --last.\n"
+    )
+
+
+def test_search_says_in_brief_what_each_session_it_found_was(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no-settings"))
+    root = tmp_path / "projects"
+    read, unread = "7f3a9c2e-1b4d-4e6f-8a90-123456789abc", "8a4b0d3f-2c5e-4f70-9ba1-23456789abcd"
+    put_session(root, read, [human("should refunds bypass the ledger", 0), assistant_text("No, the ledger comes first.", 1)])
+    put_session(root, unread, [human("where is the ledger schema kept", 0)])
+    db = tmp_path / "archive.db"
+    main(["ingest", "--root", str(root), "--db", str(db)])
+    long = "Agreed that every refund posts to the ledger first. " + "Then went through the reconciliation job line by line. " * 8
+    Archive(db).keep_digest(read, {"summary": long})
+    capsys.readouterr()
+
+    assert main(["search", "--db", str(db), "--all-projects", "ledger"]) == 0
+    hits, _, sessions = capsys.readouterr().out.partition("\nWhat these sessions were")
+
+    assert "7f3a9c2e#0" in hits and "8a4b0d3f#0" in hits
+    header, named, brief = sessions.splitlines()
+    assert header == " (dream show SESSION --summary gives the whole of one):"
+    assert named == "7f3a9c2e  2026-10-01  2 turns"
+    assert brief.startswith("    Agreed that every refund posts to the ledger first. Then went through")
+    # 300 characters end inside the fifth "reconciliation"; the cut falls back to the word before it.
+    assert brief.endswith("line by line. Then went through the…")
+    assert brief.count("reconciliation") == 4
+
+
+def test_a_memory_that_a_search_brings_up_is_counted_as_looked_up(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no-settings"))
+    project = tmp_path / "shop"
+    project.mkdir()
+    memory = tmp_path / "memory"
+    copy = MemoryStore(memory / key(str(project.resolve())))
+    copy.folder.mkdir(parents=True)
+    said = Claim(
+        slot="package-manager",
+        type=ClaimType.PREFERENCE,
+        scope=Scope.PROJECT,
+        statement="Use pnpm for JS projects.",
+        why="",
+        provenance=Provenance.HUMAN,
+        evidence=Evidence("7f3a9c2e-1b4d-4e6f-8a90-123456789abc", 3, 4),
+        said_at="2026-10-02T09:00:00Z",
+    )
+    copy.apply([Add(said)])
+    scope = ["--project", str(project), "--memory", str(memory), "--db", str(tmp_path / "archive.db")]
+
+    assert main(["search", *scope, "pnpm"]) == 0
+    assert "memory      package-manager (words)  Use pnpm for JS projects." in capsys.readouterr().out
+    assert main(["search", *scope, "yarn"]) == 0
+
+    assert copy.reads("package-manager") == 1
 
 
 def test_ingest_says_how_many_sessions_the_dream_has_not_read(tmp_path, capsys, monkeypatch):

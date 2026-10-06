@@ -4,6 +4,7 @@ These answers are read from remcycle's own copies of memory, so they describe
 what the dream has accepted whether or not it has been published.
 """
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from dream.claims import Provenance, Status
@@ -12,6 +13,7 @@ from dream.memory import INDEX, INDEX_BYTE_LIMIT, INDEX_LINE_LIMIT, MemoryStore
 from dream.mirror import Mirror
 
 _PACK_ROOM = 4_000
+_FRESH = timedelta(days=14)
 """Characters of learned statements a new session is handed. What does not fit is a search away."""
 
 
@@ -20,7 +22,7 @@ def context(memory_root: Path, project: str, now: str, live_root: Path, room: in
     everywhere = MemoryStore(memory_root / key(GLOBAL)).entries().values()
     store = MemoryStore(memory_root / key(project))
     # Sessions started without a folder share one group and little else, so they are handed none of it.
-    learned, more = _learned(store, live_root / key(project) / "memory", room) if project.startswith("/") else ([], 0)
+    learned, more = _learned(store, live_root / key(project) / "memory", room, now) if project.startswith("/") else ([], 0)
     return {
         "everywhere": [entry.statement for entry in everywhere if entry.status == Status.ACTIVE],
         "learned": learned,
@@ -30,11 +32,14 @@ def context(memory_root: Path, project: str, now: str, live_root: Path, room: in
     }
 
 
-def _learned(store: MemoryStore, live: Path, room: int) -> tuple[list[dict], int]:
-    """What the dream holds that Claude Code's own memory folder does not, newest first, and how many did not fit.
+def _learned(store: MemoryStore, live: Path, room: int, now: str) -> tuple[list[dict], int]:
+    """What the dream holds that Claude Code's own memory folder does not, and how many did not fit.
 
     Only what the person said or agreed to, and only what the index lists: what publishing
     would add to the memory a session loads, handed to the session without publishing.
+
+    What was said in the last two weeks comes first, newest first. The rest follow, the
+    most needed first, so what stays behind when room runs out was said once, long ago.
     """
     entries = store.entries()
     slots = [
@@ -45,7 +50,15 @@ def _learned(store: MemoryStore, live: Path, room: int) -> tuple[list[dict], int
         and entry.provenance in (Provenance.HUMAN, Provenance.ACCEPTED)
         and not (live / f"{slot}.md").exists()
     ]
-    slots.sort(key=store.modified, reverse=True)
+    newly = _moment(now) - _FRESH
+
+    def rank(slot: str) -> tuple:
+        said = store.modified(slot)
+        is_fresh = bool(said) and _moment(said) >= newly
+        # Something said lately has not had the time to be needed, so its count is left out of it.
+        return (is_fresh, 0 if is_fresh else store.needed(slot), said)
+
+    slots.sort(key=rank, reverse=True)
     handed: list[dict] = []
     used = 0
     for slot in slots:
@@ -55,6 +68,12 @@ def _learned(store: MemoryStore, live: Path, room: int) -> tuple[list[dict], int
         handed.append({"slot": slot, "statement": statement})
         used += len(statement)
     return handed, len(slots) - len(handed)
+
+
+def _moment(iso: str) -> datetime:
+    """The time an ISO timestamp names, read as UTC where it names no zone."""
+    at = datetime.fromisoformat(iso)
+    return at if at.tzinfo else at.replace(tzinfo=UTC)
 
 
 def status(memory_root: Path, project: str, now: str, live_root: Path | None = None) -> dict:

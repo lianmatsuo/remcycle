@@ -8,7 +8,7 @@ with or without remcycle. Provenance, evidence and history live beside them in
 import json
 import os
 import re
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -278,7 +278,8 @@ class MemoryStore:
         """Entries in use that match the query: by name first, then by alias, then by their words.
 
         A name or alias matches when the query is exactly its words, in any order.
-        Otherwise an entry matches when it holds every word of the query.
+        Otherwise an entry matches when it holds every word of the query. Among entries
+        that match alike, the one needed most often comes first.
         """
         asked = _terms(query)
         if not asked:
@@ -293,14 +294,11 @@ class MemoryStore:
                 ranked.append((1, Found(slot, entry.statement, "alias")))
             elif asked <= _terms(f"{slot} {entry.statement}"):
                 ranked.append((2, Found(slot, entry.statement, "words")))
-        return [found for _, found in sorted(ranked, key=lambda pair: pair[0])][:limit]
+        return [found for _, found in sorted(ranked, key=lambda pair: (pair[0], -self.needed(pair[1].slot)))][:limit]
 
     def note_read(self, slot: str, repository: Path, at: str) -> str | None:
         """Count a session reading the entry. Returns a warning if what it is about has gone."""
-        usage = json.loads(self._usage_file.read_text()) if self._usage_file.exists() else {}
-        usage[slot] = {"reads": usage.get(slot, {}).get("reads", 0) + 1, "last": at}
-        self._usage_file.parent.mkdir(exist_ok=True)
-        _put(self._usage_file, json.dumps(usage, indent=2, sort_keys=True) + "\n")
+        self._count([slot], at)
         anchor = self._records().get(slot, {}).get("anchor")
         if anchor and not (repository / anchor).exists():
             return (
@@ -309,9 +307,27 @@ class MemoryStore:
             )
         return None
 
+    def note_found(self, slots: Iterable[str], at: str) -> None:
+        """Count a search bringing these entries up. A name memory does not hold is passed over."""
+        held = self.entries()
+        self._count([slot for slot in slots if slot in held], at)
+
+    def _count(self, slots: Sequence[str], at: str) -> None:
+        if not slots:
+            return
+        usage = json.loads(self._usage_file.read_text()) if self._usage_file.exists() else {}
+        for slot in slots:
+            usage[slot] = {"reads": usage.get(slot, {}).get("reads", 0) + 1, "last": at}
+        self._usage_file.parent.mkdir(exist_ok=True)
+        _put(self._usage_file, json.dumps(usage, indent=2, sort_keys=True) + "\n")
+
     def reads(self, slot: str) -> int:
         usage = json.loads(self._usage_file.read_text()) if self._usage_file.exists() else {}
         return usage.get(slot, {}).get("reads", 0)
+
+    def needed(self, slot: str) -> int:
+        """How often the entry has been needed: the times it was said, and the times a session looked it up."""
+        return len(self._records().get(slot, {}).get("evidence", [])) + self.reads(slot)
 
     def note_threads(self, threads: Sequence[Thread], session_id: str, at: str) -> list[str]:
         """Record what a session left open, and close what it finished. Returns the closed threads it reopened."""
@@ -469,7 +485,7 @@ class MemoryStore:
             entry = entries.get(slot)
             endorsed = bool(entry and entry.provenance in (Provenance.HUMAN, Provenance.ACCEPTED))
             last_touched = records.get(slot, {}).get("said_at") or self._modified(slot)
-            return (endorsed, self.reads(slot), last_touched)
+            return (endorsed, self.needed(slot), last_touched)
 
         shed: list[str] = []
         candidates = sorted((_slot_of(line) for line in members), key=keep_rank)
