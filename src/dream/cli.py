@@ -291,7 +291,9 @@ def _daily_status(archive: Archive, args: argparse.Namespace) -> dict:
     began = state.began or _now()
     # A run killed before it could record its end, by a restart or otherwise, would read as running forever.
     unfinished = state.finished is None and state.failed is None and state.pid is not None
-    died = unfinished and not daily.is_running(args.state, state, _now())
+    # Asked one at a time: asking takes the run's lock for a moment, and two asking at once would each find it taken.
+    with _serialised(args.state):
+        died = unfinished and not daily.is_running(args.state, state, _now())
     return {
         "on": args.daily_on,
         "history": args.daily_history,
@@ -409,7 +411,9 @@ def _one_daily_dream(archive: Archive, args: argparse.Namespace) -> int:
     except _Busy as e:
         failed = str(e)
     finally:
-        daily.save(args.state, replace(daily.load(args.state), finished=_now(), failed=failed))
+        # A starting session reads the state and writes it back. Written between the two, the end would be lost.
+        with _serialised(args.state):
+            daily.save(args.state, replace(daily.load(args.state), finished=_now(), failed=failed))
     return code
 
 

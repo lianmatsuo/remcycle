@@ -17,6 +17,8 @@ DUE_AFTER = timedelta(hours=20)
 WEEK = timedelta(days=7)
 _COMING_UP = timedelta(minutes=1)
 """How long a daily dream that was just started is given to take the lock it runs under."""
+LOCK_WAIT = 5.0
+"""Seconds a daily dream waits for that lock. A session asking whether one is running holds it for a moment."""
 
 
 @dataclass(frozen=True)
@@ -111,7 +113,7 @@ def running(file: Path) -> Iterator[None]:
 
     Raises lock.Busy if another daily dream holds it.
     """
-    with lock.held(_running_lock(file), wait=5.0):
+    with lock.held(_running_lock(file), wait=LOCK_WAIT):
         yield
 
 

@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 from dataclasses import replace
 
 import dream.cli
@@ -371,6 +372,7 @@ def test_the_background_daily_dream_reads_from_where_the_chosen_history_begins_a
 
     def stand_in(archive, **options):
         asked.append((options["since"], options["limit"], options["publish"]))
+        assert dream.daily.is_running(state, dream.daily.load(state), "2026-10-08T14:00:00+00:00")
         return next(answers)
 
     monkeypatch.setattr(dream.cli, "dream", stand_in)
@@ -382,6 +384,34 @@ def test_the_background_daily_dream_reads_from_where_the_chosen_history_begins_a
 
     assert main(background) == 1
     assert dream.daily.load(state).failed == "1 session could not be read, because: the model gave no answer"
+    assert not dream.daily.is_running(state, dream.daily.load(state), "2026-10-08T14:00:00+00:00")
+
+    monkeypatch.setattr(dream.daily, "LOCK_WAIT", 0.2)
+    capsys.readouterr()
+    with dream.daily.running(state):  # another daily dream, still going
+        assert main(background) == 1
+    assert "another daily dream is still running" in capsys.readouterr().err
+    assert len(asked) == 2
+
+
+def test_how_a_daily_dream_ended_is_recorded_only_when_no_session_is_part_way_through_reading_and_writing_its_state(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    state = tmp_path / "data" / "remcycle" / "daily.json"
+    dream.daily.save(state, dream.daily.State(began="2026-10-08T08:00:00+00:00", started="2026-10-08T12:00:00+00:00"))
+    monkeypatch.setattr(dream.cli, "dream", lambda archive, **options: DreamReport())
+    background = ["daily", "--background", "--db", str(tmp_path / "archive.db"), "--root", str(tmp_path / "projects")]
+    run = threading.Thread(target=main, args=(background,))
+
+    with held(state.with_name("daily.json.lock")):  # as a starting session holds it, between reading the state and writing it
+        run.start()
+        run.join(timeout=1.0)
+        assert run.is_alive() and dream.daily.load(state).finished is None
+    run.join()
+
+    assert dream.daily.load(state).finished is not None
 
 
 def test_the_status_says_how_the_daily_dream_stands_and_how_much_each_history_would_read(tmp_path, capsys, monkeypatch):
