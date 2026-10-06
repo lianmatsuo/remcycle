@@ -27,6 +27,7 @@ The machine you are on may hold its owner's real archive and memory, under `~/.l
 - Write the failing test first, at one of the seams the README lists under Development, through the public interface. Watch it fail for the reason you expect, then make it pass.
 - Before changing how memory is written, how a claim is accepted, or what is sent to the model, read `docs/intent.md`. It records each decision beside the alternative that was rejected. A change that reverses one updates that file in the same pull request.
 - Python: dataclasses for structured data, `pathlib` for paths, `raise ... from e`, never a bare `except`.
+- The command runs on macOS, Linux and Windows. Name the encoding wherever text is read or written, and the line ends on a write: `encoding="utf-8"`, `newline="\n"`. The gate fails a call that leaves the encoding to the system. What the systems do differently is in `lock.py`, `disk.py` and `daily.py`.
 - Comments and docs say what the code does now, and why where a decision was made. How the change came about goes in the pull request.
 - Docs are in plain words, for someone who has never seen the code, and state only what was checked.
 - `README.md`, `docs/reference.md` and `docs/setup-with-claude.md` describe the commands. A change to a command's flags or output changes them in the same pull request.
@@ -40,7 +41,7 @@ The machine you are on may hold its owner's real archive and memory, under `~/.l
 
 ## Pull requests
 
-Branch from `main` and open a pull request. CI runs the Python half of the gate on Linux and macOS, on the oldest and newest Python remcycle supports, and the mod's half on Linux, against the Claude Code version the mod was written against. Merge when the `gate` result is green.
+Branch from `main` and open a pull request. CI runs the Python half of the gate on Linux, macOS and Windows, on the oldest and newest Python remcycle supports, and the mod's half on Linux, against the Claude Code version the mod was written against. Merge when the `gate` result is green.
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org): the subject reads `type(scope): summary`, with the scope optional. The types are build, chore, ci, docs, feat, fix, perf, refactor, revert, style and test. The summary says what the change does in plain words: `feat(cli): say how many sessions are unread`, not `feat: update cli.py`. A revert may keep the subject git gives it. The gate checks the subject of every commit the branch adds.
 

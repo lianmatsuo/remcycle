@@ -39,7 +39,7 @@ def check(live: Path, staged: Path, judge: Judge | None = None) -> list[str]:
 
     index = staged / INDEX
     if index.exists():
-        text = index.read_text()
+        text = index.read_text(encoding="utf-8")
         lines = text.count("\n")
         if lines > INDEX_LINE_LIMIT:
             problems.append(f"{INDEX} has {lines} lines; Claude Code loads the first {INDEX_LINE_LIMIT}")
@@ -48,7 +48,7 @@ def check(live: Path, staged: Path, judge: Judge | None = None) -> list[str]:
                 f"{INDEX} is {len(text.encode())} bytes; Claude Code loads the first {INDEX_BYTE_LIMIT}"
             )
     for listing in [index, *sorted(staged.glob(f"{TOPIC_PAGE}*.md"))]:
-        for target in _LINK.findall(listing.read_text()) if listing.exists() else ():
+        for target in _LINK.findall(listing.read_text(encoding="utf-8")) if listing.exists() else ():
             if not (staged / target).exists():
                 problems.append(f"{listing.name} points at {target}, which is not a memory in this folder")
     if judge and not problems:
@@ -67,7 +67,7 @@ def index_still_leads(live: Path, staged: Path, judge: Judge) -> list[str]:
 
     def right(folder: Path, index: str) -> int:
         """How many questions lead to their entry, or to the topic page that lists it."""
-        listed = {page.name: page.read_text() for page in folder.glob(f"{TOPIC_PAGE}*.md")}
+        listed = {page.name: page.read_text(encoding="utf-8") for page in folder.glob(f"{TOPIC_PAGE}*.md")}
         picked = judge(index, questions)
         return sum(
             Path(file).stem == slot or f"]({slot}.md)" in listed.get(Path(file).name, "")
@@ -82,7 +82,7 @@ def index_still_leads(live: Path, staged: Path, judge: Judge) -> list[str]:
 
 def _index_text(folder: Path) -> str:
     index = folder / INDEX
-    return index.read_text() if index.exists() else ""
+    return index.read_text(encoding="utf-8") if index.exists() else ""
 
 
 JUDGE_SYSTEM = "You pick which file to open. You answer only through the structured output."
@@ -132,4 +132,4 @@ def judge_with(runner: Runner) -> Judge:
 
 def _records(folder: Path) -> dict:
     file = folder / SIDE / "entries.json"
-    return json.loads(file.read_text()) if file.exists() else {}
+    return json.loads(file.read_text(encoding="utf-8")) if file.exists() else {}

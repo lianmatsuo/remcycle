@@ -17,8 +17,8 @@ metadata:
 
 
 def put(folder, slot, statement, body, modified="2026-09-01"):
-    (folder / f"{slot}.md").write_text(MEMORY.format(slot=slot, statement=statement, body=body, modified=modified))
-    with (folder / "MEMORY.md").open("a") as index:
+    (folder / f"{slot}.md").write_text(MEMORY.format(slot=slot, statement=statement, body=body, modified=modified), encoding="utf-8", newline="\n")
+    with (folder / "MEMORY.md").open("a", encoding="utf-8", newline="\n") as index:
         index.write(f"- [{slot}]({slot}.md) — {statement}\n")
 
 

@@ -1,3 +1,5 @@
+import json
+
 from dream.transcript import Author, Kind, parse_transcript
 from support import (
     SESSION_ID,
@@ -199,10 +201,18 @@ def test_a_transcript_still_being_written_parses_up_to_its_last_complete_row(tmp
             {"type": "assistant", "uuid": "uuid-1", "message": {}},
         ],
     )
-    with path.open("a") as transcript:
+    with path.open("a", encoding="utf-8", newline="\n") as transcript:
         transcript.write('{"type": "assistant", "uuid": "uuid-2", "message": {"role": "assis')
 
     session = parse_transcript(path)
 
     assert turns(session) == [(0, Author.HUMAN, Kind.PROMPT, "first prompt")]
     assert session.unreadable_rows == 1
+
+
+def test_a_transcript_is_read_as_utf8_whatever_the_system_would_choose(tmp_path):
+    said = "naïve café → 日本語 🙂"
+    path = tmp_path / "s.jsonl"
+    path.write_bytes((json.dumps(human(said, 0), ensure_ascii=False) + "\n").encode())
+
+    assert turns(parse_transcript(path)) == [(0, Author.HUMAN, Kind.PROMPT, said)]

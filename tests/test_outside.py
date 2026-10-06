@@ -22,7 +22,7 @@ def commit(repo, message, when):
         "GIT_COMMITTER_NAME": "Tester",
         "GIT_COMMITTER_EMAIL": "tester@localhost",
     }
-    (repo / "notes.txt").write_text(message)
+    (repo / "notes.txt").write_text(message, encoding="utf-8", newline="\n")
     subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, capture_output=True, env=env)
     subprocess.run(
         ["git", "-C", str(repo), "-c", "commit.gpgsign=false", "commit", "-q", "-m", message],

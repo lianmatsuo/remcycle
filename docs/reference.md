@@ -150,7 +150,7 @@ The archive stores what you typed into every session, word for word. Three thing
 
 - **Redaction.** Before a turn is stored, text shaped like a credential is replaced with `[redacted]`: common API key and token formats, private key blocks, passwords inside connection URLs, and values assigned to names such as `API_KEY` or `PASSWORD`. This is pattern matching. A secret with no recognisable shape is stored as written.
 - **Excluded projects.** Sessions from a listed project, or from anything inside it, are never archived. Sessions archived before the project was listed stay until you remove them: `dream purge` lists them and `dream purge --yes` deletes them and rewrites the file so their text is gone from it. Memory the dream already drew from them, under `~/.local/share/remcycle/memory/`, is not removed.
-- **File permissions.** The archive file is readable only by your user.
+- **File permissions.** The archive file is readable only by your user. On macOS and Linux remcycle sets that on the file itself. On Windows it sets it on the folder it makes for the archive, which takes Python 3.12.4 or later, and the file has the folder's permissions; Windows also lets the machine's administrators in.
 
 The archive is one local SQLite file and ingest sends nothing anywhere. The dream is different: it sends the prose of each unread session, after redaction, to the model through your own Claude Code. For a project with unfinished work it also sends the messages of that repository's recent commits and the titles and descriptions of its merged pull requests, redacted the same way. All of it goes as any session would.
 
@@ -170,6 +170,8 @@ daily_limit = 10
 `model` and `effort` apply to every model step. Leave `effort` out to use Claude Code's default. The three `daily_` settings are [the daily dream](#the-daily-dream)'s: whether it runs, how much history it reads, and how many sessions one run reads at most.
 
 Locations follow the environment: `CLAUDE_CONFIG_DIR` for Claude Code's files, `XDG_DATA_HOME` for the archive and `XDG_CONFIG_HOME` for the settings file.
+
+On Windows the folders are the same ones, under your user folder: `~/.config/remcycle` is `C:\Users\you\.config\remcycle`. A folder under `exclude` can be written there with either slash, as `"C:/work/private-client"` or, in single quotes so that the backslashes are read as they stand, as `'C:\work\private-client'`.
 
 ## Removing it
 

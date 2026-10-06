@@ -1,9 +1,11 @@
 import stat
+import subprocess
+import sys
 
 import pytest
 
 import dream.archive
-from dream.archive import NO_PROJECT, Archive
+from dream.archive import NO_PROJECT, Archive, project_of
 from dream.transcript import Author
 from support import assistant_text, human, put_session, task_notification, tool_use, write_transcript
 
@@ -130,6 +132,7 @@ def test_sessions_from_an_excluded_project_are_never_archived(root, archive):
     assert found(archive.search("vault unseal", project=None)) == [("s-open", 0)]
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows keeps who may read a file in a list of its own, not in these bits")
 def test_the_archive_file_is_readable_only_by_its_owner(tmp_path):
     path = tmp_path / "data" / "archive.db"
 
@@ -138,6 +141,25 @@ def test_the_archive_file_is_readable_only_by_its_owner(tmp_path):
 
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the list Windows keeps of who may read a file")
+def test_on_windows_the_archive_is_kept_from_the_other_users_of_the_machine(tmp_path):
+    def open_to_all_users(path):
+        return "BUILTIN\\Users" in subprocess.run(["icacls", str(path)], check=True, capture_output=True, text=True, encoding="oem").stdout
+
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    # S-1-5-32-545 is the group every user of the machine belongs to.
+    subprocess.run(["icacls", str(shared), "/grant", "*S-1-5-32-545:(OI)(CI)RX"], check=True, capture_output=True)
+    path = shared / "data" / "archive.db"
+
+    with Archive(path):
+        pass
+
+    assert open_to_all_users(shared)
+    assert not open_to_all_users(path.parent)
+    assert not open_to_all_users(path)
 
 
 def test_a_session_stays_recallable_after_its_transcript_is_deleted(root, archive):
@@ -201,11 +223,35 @@ def test_a_session_run_in_a_git_worktree_belongs_to_its_repository(root, archive
     (repo / ".git" / "worktrees" / "retry-v2").mkdir(parents=True)
     worktree = tmp_path / "elsewhere" / "worktrees" / "retry-v2"
     (worktree / "src").mkdir(parents=True)
-    (worktree / ".git").write_text(f"gitdir: {repo}/.git/worktrees/retry-v2\n")
+    (worktree / ".git").write_text(f"gitdir: {repo}/.git/worktrees/retry-v2\n", encoding="utf-8", newline="\n")
     put_session(root, "s-worktree", [human("bump the http client", 0)], cwd=str(worktree / "src"))
     archive.ingest(root)
 
     assert found(archive.search("http client", project=str(repo))) == [("s-worktree", 0)]
+
+
+def test_a_project_is_matched_by_its_path_as_this_system_writes_it(root, archive, tmp_path):
+    client = tmp_path / "work" / "private-client"
+    put_session(root, "s-private", [human("rotate the vault unseal keys", 0)], cwd=str(client / "api"))
+    put_session(root, "s-shop", [human("rotate the vault unseal keys in the demo", 0)], cwd=str(tmp_path / "work" / "shop" / "apps"))
+    put_session(root, "s-gone", [human("the vault unseal keys moved", 0)], cwd=str(tmp_path / "work" / "shop" / ".claude" / "worktrees" / "fix"))
+
+    report = archive.ingest(root, exclude=[str(client)])
+
+    assert report.excluded == 1
+    assert {h.session_id for h in archive.search("vault unseal", project=str(tmp_path / "work"))} == {"s-shop", "s-gone"}
+    assert {h.session_id for h in archive.search("vault unseal", project=str(tmp_path / "work" / "shop"))} == {"s-shop", "s-gone"}
+    assert [h.project for h in archive.search("keys moved", project=None)] == [str(tmp_path / "work" / "shop")]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="drive letters, and a path written with either slash")
+def test_on_windows_a_folder_is_one_project_however_its_path_is_written(root, archive, tmp_path):
+    client = tmp_path / "work" / "private-client"
+    as_typed = str(client)[0].lower() + str(client)[1:].replace("\\", "/")
+    put_session(root, "s-private", [human("rotate the vault unseal keys", 0)], cwd=str(client / "api"))
+
+    assert project_of(as_typed) == str(client)
+    assert archive.ingest(root, exclude=[as_typed.upper()]).excluded == 1
 
 
 def test_sessions_started_without_a_folder_share_one_group(root, archive):

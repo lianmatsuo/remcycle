@@ -6,20 +6,13 @@ with or without remcycle. Provenance, evidence and history live beside them in
 """
 
 import json
-import os
 import re
-import secrets
-from collections.abc import Iterable, Iterator, Sequence
-from contextlib import contextmanager
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-try:
-    import fcntl
-except ImportError:  # Windows has no fcntl, and there two writers at once can lose a count.
-    fcntl = None
-
+from dream import disk, lock
 from dream.claims import Claim, ClaimType, Entry, Evidence, Provenance, Status, claim_from_json, claim_to_json
 from dream.extract import Thread
 from dream.reconcile import Add, Alias, Confirm, Contest, Demote, Op, Question, Review, Supersede, Withhold
@@ -131,7 +124,7 @@ class MemoryStore:
             p for p in self._folder.glob("*.md") if p.name != INDEX and not p.name.startswith(TOPIC_PAGE)
         ] + list(self._withheld.glob("*.md"))
         return {
-            path.stem: _entry(path.stem, path.read_text(), records.get(path.stem, {}))
+            path.stem: _entry(path.stem, path.read_text(encoding="utf-8"), records.get(path.stem, {}))
             for path in sorted(files, key=lambda p: p.stem)
         }
 
@@ -181,13 +174,13 @@ class MemoryStore:
         self._withheld.mkdir(parents=True, exist_ok=True)
         file = self._folder / f"{slot}.md"
         if file.exists():
-            file.rename(self._withheld / f"{slot}.md")
+            disk.replace(file, self._withheld / f"{slot}.md")
         self._index_drop(slot)
         records.setdefault(slot, {})["status"] = status
 
     def _save(self, records: dict[str, dict]) -> None:
         self._records_file.parent.mkdir(exist_ok=True)
-        _put(self._records_file, json.dumps(records, indent=2, sort_keys=True) + "\n")
+        disk.put(self._records_file, json.dumps(records, indent=2, sort_keys=True) + "\n")
 
     def forget(self, slot: str) -> None:
         """Drop what remcycle recorded about a slot. The memory file, if any, is left alone."""
@@ -264,7 +257,7 @@ class MemoryStore:
         held = self._withheld / f"{slot}.md"
         if held.exists() or records.get(slot, {}).get("demoted"):
             if held.exists():
-                held.rename(self._folder / f"{slot}.md")
+                disk.replace(held, self._folder / f"{slot}.md")
             records.setdefault(slot, {})["status"] = Status.ACTIVE
             records[slot].pop("demoted", None)
             self._save(records)
@@ -323,14 +316,15 @@ class MemoryStore:
     def _count(self, slots: Sequence[str], at: str) -> None:
         if not slots:
             return
-        with _held(self._usage_file):
-            usage = json.loads(self._usage_file.read_text()) if self._usage_file.exists() else {}
+        # One writer at a time, so that two adding to the count at once both count.
+        with lock.held(self._usage_file.with_name(self._usage_file.name + ".lock")):
+            usage = json.loads(self._usage_file.read_text(encoding="utf-8")) if self._usage_file.exists() else {}
             for slot in slots:
                 usage[slot] = {"reads": usage.get(slot, {}).get("reads", 0) + 1, "last": at}
-            _put(self._usage_file, json.dumps(usage, indent=2, sort_keys=True) + "\n")
+            disk.put(self._usage_file, json.dumps(usage, indent=2, sort_keys=True) + "\n")
 
     def reads(self, slot: str) -> int:
-        usage = json.loads(self._usage_file.read_text()) if self._usage_file.exists() else {}
+        usage = json.loads(self._usage_file.read_text(encoding="utf-8")) if self._usage_file.exists() else {}
         return usage.get(slot, {}).get("reads", 0)
 
     def needed(self, slot: str) -> int:
@@ -376,7 +370,7 @@ class MemoryStore:
         for thread in noted.values():
             thread["checked_to"] = at
         if noted:
-            _put(self._threads_file, json.dumps(noted, indent=2, sort_keys=True) + "\n")
+            disk.put(self._threads_file, json.dumps(noted, indent=2, sort_keys=True) + "\n")
 
     def close_thread(
         self, slot: str, *, by: str = "you", session_id: str | None = None, why: str = "", at: str | None = None
@@ -413,15 +407,15 @@ class MemoryStore:
         self._threads_save(noted, closed)
 
     def _closed(self) -> dict[str, dict]:
-        return json.loads(self._closed_file.read_text()) if self._closed_file.exists() else {}
+        return json.loads(self._closed_file.read_text(encoding="utf-8")) if self._closed_file.exists() else {}
 
     def _threads_save(self, noted: dict[str, dict], closed: dict[str, dict]) -> None:
         self._threads_file.parent.mkdir(exist_ok=True)
-        _put(self._threads_file, json.dumps(noted, indent=2, sort_keys=True) + "\n")
-        _put(self._closed_file, json.dumps(closed, indent=2, sort_keys=True) + "\n")
+        disk.put(self._threads_file, json.dumps(noted, indent=2, sort_keys=True) + "\n")
+        disk.put(self._closed_file, json.dumps(closed, indent=2, sort_keys=True) + "\n")
 
     def _threads(self) -> dict[str, dict]:
-        return json.loads(self._threads_file.read_text()) if self._threads_file.exists() else {}
+        return json.loads(self._threads_file.read_text(encoding="utf-8")) if self._threads_file.exists() else {}
 
     def indexed(self) -> list[str]:
         """The entries the index holds a line for, in the index's order."""
@@ -434,7 +428,7 @@ class MemoryStore:
     def keep_flat(self) -> None:
         """Keep the index one line per entry however many entries there are, until `allow_topics`."""
         self._flat_file.parent.mkdir(exist_ok=True)
-        _put(self._flat_file, "")
+        disk.put(self._flat_file, "")
         self._render()
 
     def allow_topics(self) -> None:
@@ -459,7 +453,7 @@ class MemoryStore:
             # The index written below may list topics or leave lines out, and until now it was
             # the only place the lines were held.
             self._lines_file.parent.mkdir(exist_ok=True)
-            _put(self._lines_file, "".join(lines))
+            disk.put(self._lines_file, "".join(lines))
         for page in self._folder.glob(f"{TOPIC_PAGE}*.md"):
             page.unlink()
         if not lines and not index.exists():
@@ -475,7 +469,7 @@ class MemoryStore:
                 pages.setdefault(topic_of[_slot_of(line)] or "Other", []).append(line)
             named = {topic: f"{TOPIC_PAGE}{re.sub(r'[^a-z0-9]+', '-', topic.lower()).strip('-')}.md" for topic in pages}
             for topic, page in named.items():
-                _put((self._folder / page), f"# {topic}\n\n" + "".join(pages[topic]))
+                disk.put((self._folder / page), f"# {topic}\n\n" + "".join(pages[topic]))
             kept = "".join(line for line in lines if not _slot_of(line))
             for limit in _TOPIC_HOOK_LIMITS:
                 listing = []
@@ -487,7 +481,7 @@ class MemoryStore:
                 text = kept + "".join(listing)
                 if len(text.splitlines()) <= max_lines and len(text.encode()) <= max_bytes:
                     break
-            _put(index, text)
+            disk.put(index, text)
             return []
 
         def keep_rank(slot: str) -> tuple:
@@ -502,7 +496,7 @@ class MemoryStore:
             slot = candidates.pop(0)
             lines = [line for line in lines if _slot_of(line) != slot]
             shed.append(slot)
-        _put(index, "".join(lines))
+        disk.put(index, "".join(lines))
         return shed
 
     def _lines(self) -> list[str]:
@@ -510,11 +504,11 @@ class MemoryStore:
         source = self._lines_file if self._lines_file.exists() else self._folder / INDEX
         if not source.exists():
             return []
-        return [line if line.endswith("\n") else line + "\n" for line in source.read_text().splitlines(keepends=True)]
+        return [line if line.endswith("\n") else line + "\n" for line in source.read_text(encoding="utf-8").splitlines(keepends=True)]
 
     def _keep(self, lines: Sequence[str]) -> None:
         self._lines_file.parent.mkdir(exist_ok=True)
-        _put(self._lines_file, "".join(lines))
+        disk.put(self._lines_file, "".join(lines))
         self._render()
 
     def modified(self, slot: str) -> str:
@@ -523,7 +517,7 @@ class MemoryStore:
 
     def _modified(self, slot: str) -> str:
         file = self._folder / f"{slot}.md"
-        return _front(file.read_text())[0].get("modified", "") if file.exists() else ""
+        return _front(file.read_text(encoding="utf-8"))[0].get("modified", "") if file.exists() else ""
 
     def history(self, slot: str) -> list[Past]:
         """What the slot held before, oldest first."""
@@ -540,7 +534,7 @@ class MemoryStore:
                 item["withheld"],
                 item.get("reason", ""),
             )
-            for item in json.loads(self._queue_file.read_text())
+            for item in json.loads(self._queue_file.read_text(encoding="utf-8"))
         ]
 
     def _ask(self, question: Open) -> None:
@@ -559,7 +553,7 @@ class MemoryStore:
             }
             for q in waiting
         ]
-        _put(self._queue_file, json.dumps(items, indent=2, sort_keys=True) + "\n")
+        disk.put(self._queue_file, json.dumps(items, indent=2, sort_keys=True) + "\n")
 
     def _index_drop(self, slot: str) -> None:
         lines = self._lines()
@@ -567,10 +561,10 @@ class MemoryStore:
             self._keep([line for line in lines if _slot_of(line) != slot])
 
     def _records(self) -> dict[str, dict]:
-        return json.loads(self._records_file.read_text()) if self._records_file.exists() else {}
+        return json.loads(self._records_file.read_text(encoding="utf-8")) if self._records_file.exists() else {}
 
     def _write(self, claim: Claim) -> None:
-        _put((self._folder / f"{claim.slot}.md"), _memory_file(claim))
+        disk.put((self._folder / f"{claim.slot}.md"), _memory_file(claim))
 
     def _index(self, claim: Claim) -> None:
         if _always_loaded(claim.type, claim.provenance):
@@ -596,31 +590,6 @@ def _count_beside(folder: Path) -> Path:
     replaces the folder's contents whole. A copy being worked on shares its original's count.
     """
     return folder.with_name(folder.name.removesuffix(STAGED) + ".usage.json")
-
-
-@contextmanager
-def _held(file: Path) -> Iterator[None]:
-    """Keep the file to one writer at a time, so that two adding to it at once both count."""
-    file.parent.mkdir(parents=True, exist_ok=True)
-    if fcntl is None:
-        yield
-        return
-    with file.with_name(file.name + ".lock").open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        yield
-
-
-def _put(file: Path, text: str) -> None:
-    """Replace the file whole, so a reader never finds it half written.
-
-    Each writer works in a file of its own, so two writing at once do not take each other's away.
-    """
-    fresh = file.with_name(f"{file.name}.{os.getpid()}.{secrets.token_hex(4)}.new")
-    try:
-        fresh.write_text(text)
-        os.replace(fresh, file)
-    finally:
-        fresh.unlink(missing_ok=True)
 
 
 def _entry(slot: str, text: str, record: dict) -> Entry:

@@ -8,7 +8,8 @@ const RECALL = 'mcp__remcycle__recall'
 const CLOSE = 'mcp__remcycle__close_thread'
 const SETTLE = 'mcp__remcycle__settle_memory'
 // A memory in Claude Code's own folder, memory/<name>.md, or in the copy the dream keeps, memory/<project>/<name>.md.
-const MEMORY_FILE = /\/memory\/(?:[^/]+\/)?[^/]+\.md$/
+// The path is one Claude Code was given, so on Windows its parts may be divided by either slash.
+const MEMORY_FILE = /[\\/]memory[\\/](?:[^\\/]+[\\/])?[^\\/]+\.md$/
 const LATELY = 3
 const PER_PAGE = 12
 // All in character cells. A pane this wide or wider is laid out in two columns, with a gutter between them.
@@ -74,7 +75,7 @@ function brief(text: string): string {
 }
 
 function named(path: string): string {
-  return path.split('/').filter(Boolean).at(-1) ?? path
+  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path
 }
 
 /** A slot is a key such as `deploy-target`; this is how it reads as a heading. */

@@ -38,6 +38,8 @@ Then set its schedule, folder and permission mode in the app: Code tab, Routines
 
 ### cron
 
+On macOS and Linux. No way of running it at a fixed time has been tried on Windows.
+
 ```
 30 3 * * * USER=you PATH=/home/you/.local/bin:/usr/bin:/bin /home/you/.local/bin/dream run >> /home/you/.local/share/remcycle/dream.log 2>&1
 ```

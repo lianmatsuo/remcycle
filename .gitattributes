@@ -1,0 +1,3 @@
+# Text is checked out with Unix line ends on every system. The gate's scripts are bash, which
+# does not run a script whose lines end the way Windows ends them.
+* text=auto eol=lf

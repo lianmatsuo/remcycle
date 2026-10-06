@@ -3,6 +3,7 @@ import threading
 
 import pytest
 
+import dream.disk
 from dream.claims import Claim, ClaimType, Evidence, Provenance, Scope, Status
 from dream.extract import Thread
 from dream.memory import Closed, MemoryStore
@@ -30,8 +31,8 @@ def folder(tmp_path):
     """A memory folder as Claude Code leaves it: one memory and its index line."""
     folder = tmp_path / "memory"
     folder.mkdir()
-    (folder / "deploy_target.md").write_text(LEGACY_FILE)
-    (folder / "MEMORY.md").write_text(LEGACY_INDEX)
+    (folder / "deploy_target.md").write_text(LEGACY_FILE, encoding="utf-8", newline="\n")
+    (folder / "MEMORY.md").write_text(LEGACY_INDEX, encoding="utf-8", newline="\n")
     return folder
 
 
@@ -62,7 +63,7 @@ def test_an_added_claim_becomes_a_memory_file_claude_code_can_read_and_an_index_
 
     store.apply([Add(claim("package-manager", "Use pnpm for JS projects.", why="npm lockfiles drifted."))])
 
-    assert (folder / "package-manager.md").read_text() == (
+    assert (folder / "package-manager.md").read_text(encoding="utf-8") == (
         "---\n"
         "name: package-manager\n"
         'description: "Use pnpm for JS projects."\n'
@@ -76,7 +77,7 @@ def test_an_added_claim_becomes_a_memory_file_claude_code_can_read_and_an_index_
         "\n"
         "Evidence: `dream show 7f3a9c2e --first 3 --last 4`\n"
     )
-    assert (folder / "MEMORY.md").read_text() == (
+    assert (folder / "MEMORY.md").read_text(encoding="utf-8") == (
         LEGACY_INDEX + "- [Package manager](package-manager.md) — Use pnpm for JS projects.\n"
     )
     added = MemoryStore(folder).entries()["package-manager"]
@@ -108,9 +109,9 @@ def test_a_superseding_claim_replaces_the_file_and_its_index_line_and_the_old_st
 
     store.apply([Supersede("deploy_target", newer)])
 
-    assert "Deploys go straight to production." in (folder / "deploy_target.md").read_text()
-    assert "staging" not in (folder / "deploy_target.md").read_text()
-    assert (folder / "MEMORY.md").read_text() == "- [Deploy target](deploy_target.md) — Deploys go straight to production.\n"
+    assert "Deploys go straight to production." in (folder / "deploy_target.md").read_text(encoding="utf-8")
+    assert "staging" not in (folder / "deploy_target.md").read_text(encoding="utf-8")
+    assert (folder / "MEMORY.md").read_text(encoding="utf-8") == "- [Deploy target](deploy_target.md) — Deploys go straight to production.\n"
     assert store.entries()["deploy_target"].provenance == Provenance.HUMAN
     assert [past.statement for past in store.history("deploy_target")] == [
         "Deploys go to the staging cluster first: never straight to production."
@@ -124,7 +125,7 @@ def test_a_contested_entry_is_withheld_from_sessions_and_put_to_the_person(folde
     store.apply([Contest("deploy_target", seen)])
 
     assert not (folder / "deploy_target.md").exists()
-    assert (folder / "MEMORY.md").read_text() == ""
+    assert (folder / "MEMORY.md").read_text(encoding="utf-8") == ""
     assert store.entries()["deploy_target"].status == Status.CONTESTED
     assert [(open_.slot, open_.claim.statement, open_.withheld) for open_ in store.queue()] == [
         ("deploy_target", "Deploys go straight to production.", True)
@@ -151,7 +152,7 @@ def test_a_lesson_nobody_endorsed_is_kept_on_file_but_out_of_the_index_sessions_
     store.ensure_indexed()
 
     assert (folder / "flaky-e2e.md").exists()
-    assert (folder / "MEMORY.md").read_text() == LEGACY_INDEX
+    assert (folder / "MEMORY.md").read_text(encoding="utf-8") == LEGACY_INDEX
 
 
 def test_open_threads_are_kept_until_finished_or_two_weeks_stale(folder):
@@ -196,7 +197,7 @@ def test_ruling_for_the_existing_entry_puts_a_withheld_one_back_as_it_was(folder
     store.resolve("deploy_target", accept=False)
 
     assert (folder / "deploy_target.md").read_bytes() == before
-    assert "](deploy_target.md)" in (folder / "MEMORY.md").read_text()
+    assert "](deploy_target.md)" in (folder / "MEMORY.md").read_text(encoding="utf-8")
     assert store.entries()["deploy_target"].status == Status.ACTIVE
     assert store.queue() == []
 
@@ -215,7 +216,7 @@ def test_ruling_for_the_new_claim_makes_it_the_entry_on_the_persons_authority(fo
 def test_reading_a_memory_is_counted_and_a_fact_whose_file_is_gone_carries_a_warning(folder, tmp_path):
     repo = tmp_path / "repo"
     (repo / "infra").mkdir(parents=True)
-    (repo / "infra" / "deploy.sh").write_text("#!/bin/sh\n")
+    (repo / "infra" / "deploy.sh").write_text("#!/bin/sh\n", encoding="utf-8", newline="\n")
     store = MemoryStore(folder)
     fact = Claim(**{**claim("deploy-script", "Deploys run through infra/deploy.sh.", type=ClaimType.FACT).__dict__, "anchor": "infra/deploy.sh"})
     store.apply([Add(fact)])
@@ -294,10 +295,10 @@ def test_an_index_over_its_budget_sheds_the_oldest_unread_legacy_lines_and_keeps
     for n, modified in enumerate(["2026-05-01", "2026-09-01", "2026-07-01"]):
         (folder / f"note-{n}.md").write_text(
             f'---\nname: note-{n}\ndescription: "Note {n}."\nmetadata:\n  type: project\n  modified: {modified}T00:00:00Z\n---\n\nNote {n}.\n'
-        )
+        , encoding="utf-8", newline="\n")
     (folder / "MEMORY.md").write_text(
         "- [Note 0](note-0.md) — n0\n- [Note 1](note-1.md) — n1\n- [Note 2](note-2.md) — n2\n"
-    )
+    , encoding="utf-8", newline="\n")
     store = MemoryStore(folder)
     store.apply([Add(claim("package-manager", "Use pnpm for JS projects."))])
     store.note_read("note-0", folder, "2026-10-01T09:00:00Z")
@@ -305,7 +306,7 @@ def test_an_index_over_its_budget_sheds_the_oldest_unread_legacy_lines_and_keeps
     shed = store.fit_index(max_lines=2, max_bytes=10_000)
 
     assert shed == ["note-2", "note-1"]
-    assert (folder / "MEMORY.md").read_text() == (
+    assert (folder / "MEMORY.md").read_text(encoding="utf-8") == (
         "- [Note 0](note-0.md) — n0\n- [Package manager](package-manager.md) — Use pnpm for JS projects.\n"
     )
     assert sorted(p.name for p in folder.glob("note-*.md")) == ["note-0.md", "note-1.md", "note-2.md"]
@@ -319,7 +320,7 @@ def test_an_index_over_its_budget_sheds_what_was_said_once_before_what_was_said_
     shed = store.fit_index(max_lines=1, max_bytes=10_000)
 
     assert shed == ["deploy_target", "ci-runner"]
-    assert (folder / "MEMORY.md").read_text() == "- [Package manager](package-manager.md) — Use pnpm for JS projects.\n"
+    assert (folder / "MEMORY.md").read_text(encoding="utf-8") == "- [Package manager](package-manager.md) — Use pnpm for JS projects.\n"
 
 
 def test_an_entry_withheld_for_a_reason_waits_for_the_person_and_returns_if_they_keep_it(folder):
@@ -350,7 +351,7 @@ def test_agreeing_with_a_review_retires_the_entry_from_sessions_without_destroyi
     store.resolve("deploy_target", accept=True)
 
     assert not (folder / "deploy_target.md").exists()
-    assert (folder / "MEMORY.md").read_text() == ""
+    assert (folder / "MEMORY.md").read_text(encoding="utf-8") == ""
     assert store.entries()["deploy_target"].status == Status.RETIRED
     assert (folder / ".remcycle" / "withheld" / "deploy_target.md").read_bytes() == before
     assert store.queue() == []
@@ -383,14 +384,14 @@ def test_a_demoted_entry_leaves_the_index_but_stays_on_file_until_the_person_rul
     store.ensure_indexed()
 
     assert (folder / "deploy_target.md").exists()
-    assert (folder / "MEMORY.md").read_text() == ""
+    assert (folder / "MEMORY.md").read_text(encoding="utf-8") == ""
     assert [(item.slot, item.withheld, item.reason) for item in store.queue()] == [
         ("deploy_target", False, "a session was corrected after relying on it")
     ]
 
     store.resolve("deploy_target", accept=False)
 
-    assert "](deploy_target.md)" in (folder / "MEMORY.md").read_text()
+    assert "](deploy_target.md)" in (folder / "MEMORY.md").read_text(encoding="utf-8")
 
 
 def topical(slot, statement, topic):
@@ -415,11 +416,11 @@ def busy(folder):
 def test_past_a_threshold_the_index_lists_topics_and_each_topic_page_holds_its_lines_unchanged(folder, busy):
     busy.fit_index(max_lines=190, max_bytes=23_000)
 
-    assert (folder / "MEMORY.md").read_text() == (
+    assert (folder / "MEMORY.md").read_text(encoding="utf-8") == (
         "- [Deploys and CI](_topic-deploys-and-ci.md) — 2 memories: Deploy target, Ci runner\n"
         "- [Tooling](_topic-tooling.md) — 2 memories: Package manager, Formatter\n"
     )
-    assert (folder / "_topic-deploys-and-ci.md").read_text() == (
+    assert (folder / "_topic-deploys-and-ci.md").read_text(encoding="utf-8") == (
         "# Deploys and CI\n\n" + LEGACY_INDEX + "- [Ci runner](ci-runner.md) — CI is self-hosted.\n"
     )
     assert sorted(busy.entries()) == ["ci-runner", "deploy_target", "formatter", "package-manager"]
@@ -430,18 +431,18 @@ def test_once_the_index_is_by_topic_a_new_entry_goes_onto_its_topics_page(folder
 
     busy.apply([Add(topical("linter", "Lint with ruff too.", "Tooling"))])
 
-    assert "- [Linter](linter.md) — Lint with ruff too.\n" in (folder / "_topic-tooling.md").read_text()
-    assert "3 memories: Package manager, Formatter, Linter" in (folder / "MEMORY.md").read_text()
+    assert "- [Linter](linter.md) — Lint with ruff too.\n" in (folder / "_topic-tooling.md").read_text(encoding="utf-8")
+    assert "3 memories: Package manager, Formatter, Linter" in (folder / "MEMORY.md").read_text(encoding="utf-8")
 
 
 def test_a_line_a_session_adds_to_the_topic_index_is_kept_as_that_entrys_line(folder, busy):
     busy.fit_index(max_lines=190, max_bytes=23_000)
-    before = (folder / "MEMORY.md").read_text()
+    before = (folder / "MEMORY.md").read_text(encoding="utf-8")
 
     busy.absorb(before, before + "- [Release notes](release_notes.md) — written by hand each Friday\n")
 
-    assert "- [Release notes](release_notes.md) — written by hand each Friday\n" in (folder / "_topic-other.md").read_text()
-    assert "[Other](_topic-other.md) — 1 memory: Release notes" in (folder / "MEMORY.md").read_text()
+    assert "- [Release notes](release_notes.md) — written by hand each Friday\n" in (folder / "_topic-other.md").read_text(encoding="utf-8")
+    assert "[Other](_topic-other.md) — 1 memory: Release notes" in (folder / "MEMORY.md").read_text(encoding="utf-8")
 
 
 @pytest.fixture
@@ -451,9 +452,9 @@ def written_by_claude(tmp_path):
     folder.mkdir()
     lines = []
     for slot, hook in [("deploy_target", "staging first"), ("ci_runner", "self-hosted"), ("formatter", "ruff"), ("linter", "ruff too")]:
-        (folder / f"{slot}.md").write_text(LEGACY_FILE.replace("deploy-target", slot))
+        (folder / f"{slot}.md").write_text(LEGACY_FILE.replace("deploy-target", slot), encoding="utf-8", newline="\n")
         lines.append(f"- [{slot}]({slot}.md) — {hook}\n")
-    (folder / "MEMORY.md").write_text("".join(lines))
+    (folder / "MEMORY.md").write_text("".join(lines), encoding="utf-8", newline="\n")
     return folder
 
 
@@ -466,28 +467,28 @@ def test_a_folder_claude_code_wrote_keeps_every_index_line_when_its_index_turns_
     store.set_topic("linter", "Tooling")
     store.fit_index(200, 25_000)
 
-    assert (written_by_claude / "MEMORY.md").read_text() == (
+    assert (written_by_claude / "MEMORY.md").read_text(encoding="utf-8") == (
         "- [Deploys and CI](_topic-deploys-and-ci.md) — 2 memories: deploy_target, ci_runner\n"
         "- [Tooling](_topic-tooling.md) — 2 memories: formatter, linter\n"
     )
-    assert (written_by_claude / "_topic-deploys-and-ci.md").read_text() == (
+    assert (written_by_claude / "_topic-deploys-and-ci.md").read_text(encoding="utf-8") == (
         "# Deploys and CI\n\n- [deploy_target](deploy_target.md) — staging first\n- [ci_runner](ci_runner.md) — self-hosted\n"
     )
-    assert (written_by_claude / "_topic-tooling.md").read_text() == (
+    assert (written_by_claude / "_topic-tooling.md").read_text(encoding="utf-8") == (
         "# Tooling\n\n- [formatter](formatter.md) — ruff\n- [linter](linter.md) — ruff too\n"
     )
 
 
 def test_a_line_left_out_of_a_folder_claude_code_wrote_comes_back_when_there_is_room(written_by_claude):
     store = MemoryStore(written_by_claude)
-    whole = (written_by_claude / "MEMORY.md").read_text()
+    whole = (written_by_claude / "MEMORY.md").read_text(encoding="utf-8")
 
     left_out = store.fit_index(3, 25_000)
     assert len(left_out) == 1
-    assert len((written_by_claude / "MEMORY.md").read_text().splitlines()) == 3
+    assert len((written_by_claude / "MEMORY.md").read_text(encoding="utf-8").splitlines()) == 3
 
     assert store.fit_index(200, 25_000) == []
-    assert (written_by_claude / "MEMORY.md").read_text() == whole
+    assert (written_by_claude / "MEMORY.md").read_text(encoding="utf-8") == whole
 
 
 def test_a_closed_thread_is_remembered_with_who_closed_it_and_why_and_can_be_reopened(folder):
@@ -541,11 +542,11 @@ def crowded(tmp_path):
     lines = []
     for n in range(8):
         slot = f"reference_pool_error_{n}"
-        (folder / f"{slot}.md").write_text(LEGACY_FILE.replace("deploy-target", slot))
+        (folder / f"{slot}.md").write_text(LEGACY_FILE.replace("deploy-target", slot), encoding="utf-8", newline="\n")
         lines.append(f"- [Postgres pool error 57P01 handling, part {n}]({slot}.md) — retry once\n")
-    (folder / "formatter.md").write_text(LEGACY_FILE.replace("deploy-target", "formatter"))
+    (folder / "formatter.md").write_text(LEGACY_FILE.replace("deploy-target", "formatter"), encoding="utf-8", newline="\n")
     lines.append("- [Formatter](formatter.md) — ruff\n")
-    (folder / "MEMORY.md").write_text("".join(lines))
+    (folder / "MEMORY.md").write_text("".join(lines), encoding="utf-8", newline="\n")
     store = MemoryStore(folder, topics_after=3)
     for n in range(8):
         store.set_topic(f"reference_pool_error_{n}", "Database")
@@ -557,15 +558,15 @@ def test_a_topic_line_names_every_memory_while_the_index_has_room_and_fewer_when
     index = crowded.folder / "MEMORY.md"
 
     crowded.fit_index(200, 25_000)
-    (database,) = [line for line in index.read_text().splitlines() if "Database" in line]
+    (database,) = [line for line in index.read_text(encoding="utf-8").splitlines() if "Database" in line]
     assert all(f"Postgres pool error 57P01 handling, part {n}" in database for n in range(8))
     assert "…" not in database
 
     crowded.fit_index(200, 300)
-    (database,) = [line for line in index.read_text().splitlines() if "Database" in line]
-    assert len(index.read_text().encode()) <= 300
+    (database,) = [line for line in index.read_text(encoding="utf-8").splitlines() if "Database" in line]
+    assert len(index.read_text(encoding="utf-8").encode()) <= 300
     assert "8 memories: Postgres pool error 57P01 handling, part 0" in database and database.endswith("…")
-    assert len((crowded.folder / "_topic-database.md").read_text().splitlines()) == 2 + 8
+    assert len((crowded.folder / "_topic-database.md").read_text(encoding="utf-8").splitlines()) == 2 + 8
 
 
 def test_an_index_kept_one_line_per_entry_stays_that_way_until_topics_are_allowed_again(crowded):
@@ -577,7 +578,7 @@ def test_an_index_kept_one_line_per_entry_stays_that_way_until_topics_are_allowe
     crowded.set_topic("formatter", "Formatting")
 
     assert not crowded.by_topic()
-    assert len(index.read_text().splitlines()) == 9 and "_topic-" not in index.read_text()
+    assert len(index.read_text(encoding="utf-8").splitlines()) == 9 and "_topic-" not in index.read_text(encoding="utf-8")
     assert list(crowded.folder.glob("_topic-*.md")) == []
 
     crowded.allow_topics()
@@ -590,7 +591,7 @@ def test_a_write_that_fails_part_way_leaves_the_file_as_it_was(folder, monkeypat
     store = MemoryStore(folder)
     store.note_threads([Thread("ci-cache", "CI cache is not set up.", True, 4)], "session-a", "2026-10-01T09:00:00Z")
     threads = folder / ".remcycle" / "threads.json"
-    before = threads.read_text()
+    before = threads.read_text(encoding="utf-8")
 
     def fails(source, target):
         raise OSError("disk full")
@@ -599,4 +600,32 @@ def test_a_write_that_fails_part_way_leaves_the_file_as_it_was(folder, monkeypat
     with pytest.raises(OSError, match="disk full"):
         store.note_threads([Thread("lint-rules", "Lint rules are not agreed.", True, 1)], "session-b", "2026-10-02T09:00:00Z")
 
-    assert threads.read_text() == before
+    assert threads.read_text(encoding="utf-8") == before
+
+
+def test_what_the_store_writes_is_utf8_with_unix_line_ends_on_every_system(folder):
+    said = "Releases go out on Thursdays — never Fridays, naïvely or not."
+
+    MemoryStore(folder).apply([Add(claim("release-day", said))])
+
+    assert (folder / "MEMORY.md").read_bytes() == (LEGACY_INDEX + f"- [Release day](release-day.md) — {said}\n").encode()
+    written = (folder / "release-day.md").read_bytes()
+    assert said.encode() in written and b"\r" not in written
+
+
+def test_a_write_refused_while_a_reader_has_the_file_open_is_made_once_the_reader_lets_go(folder, monkeypatch):
+    replace, refused = os.replace, []
+
+    def refused_twice(source, target):
+        if len(refused) < 2:
+            refused.append(target)
+            raise PermissionError("another process has the file open")
+        replace(source, target)
+
+    monkeypatch.setattr(dream.disk, "PATIENCE", 5.0)
+    monkeypatch.setattr(os, "replace", refused_twice)
+
+    MemoryStore(folder).apply([Add(claim("release-day", "Releases go out on Thursdays."))])
+
+    assert len(refused) == 2
+    assert "release-day" in MemoryStore(folder).entries()

@@ -1,10 +1,10 @@
 """Command line: `dream ingest`, `dream search`, `dream show`, `dream run`, `dream queue`."""
 
 import argparse
+import io
 import json
 import os
 import sys
-import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
@@ -12,12 +12,7 @@ from datetime import UTC, date, datetime
 from importlib.metadata import version
 from pathlib import Path
 
-try:
-    import fcntl
-except ImportError:  # Windows has no fcntl, and there commands do not take turns.
-    fcntl = None
-
-from dream import daily, outside, review
+from dream import daily, lock, outside, review
 from dream.archive import NO_PROJECT, Archive, Recap, project_of
 from dream.dreaming import GLOBAL, DreamReport, dream, key, publish_project, read_ahead, render, review_project
 from dream.extract import ClaudeCode
@@ -29,6 +24,11 @@ from dream.settings import HISTORIES, Settings, load_settings, put_setting
 
 
 def main(argv: list[str] | None = None) -> int:
+    if sys.platform == "win32":
+        _print_utf8()
+        # Windows looks for a program in the current folder before the path, and a session runs
+        # this command in whatever project it is open in. With this set, only the path is searched.
+        os.environ.setdefault("NoDefaultCurrentDirectoryInExePath", "1")
     try:
         settings = load_settings(os.environ, Path.home())
     except ValueError as e:
@@ -46,6 +46,17 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
 
+def _print_utf8() -> None:
+    """Print in UTF-8 wherever the output goes.
+
+    Left alone, Python on Windows writes to a pipe or a file in the system's code page, which has
+    no way to write most of the characters a session can hold.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(encoding="utf-8", errors=stream.errors)
+
+
 _TURN_WAIT = 5.0
 """Seconds a command that changes memory waits for another to finish before it gives up."""
 
@@ -57,21 +68,11 @@ class _Busy(Exception):
 @contextmanager
 def _turn(memory: Path) -> Iterator[None]:
     """Hold the one turn at changing memory, so that two commands never rewrite the same files at once."""
-    if fcntl is None:
-        yield
-        return
-    memory.mkdir(parents=True, exist_ok=True)
-    with (memory / ".lock").open("w") as lock:
-        deadline = time.monotonic() + _TURN_WAIT
-        while True:
-            try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
-            except BlockingIOError as e:
-                if time.monotonic() >= deadline:
-                    raise _Busy("another dream command is changing memory; try again when it has finished") from e
-                time.sleep(0.05)
-        yield
+    try:
+        with lock.held(memory / ".lock", wait=_TURN_WAIT):
+            yield
+    except lock.Busy as e:
+        raise _Busy("another dream command is changing memory; try again when it has finished") from e
 
 
 def _ingest(archive: Archive, args: argparse.Namespace) -> int:
@@ -183,7 +184,7 @@ def _dreamt(archive: Archive, args: argparse.Namespace) -> DreamReport:
     report.cost_usd += ahead.cost_usd
     written = args.reports / f"{datetime.now().astimezone():%Y-%m-%d-%H%M%S}.md"
     written.parent.mkdir(parents=True, exist_ok=True)
-    written.write_text(render(report))
+    written.write_text(render(report), encoding="utf-8", newline="\n")
     print(render(report))
     print(f"report saved to {written}")
     return report
@@ -446,12 +447,7 @@ _HISTORY_SAID = {
 @contextmanager
 def _serialised(file: Path) -> Iterator[None]:
     """Hold a lock beside `file` for a moment, so two sessions starting together do not both start a dream."""
-    if fcntl is None:
-        yield
-        return
-    file.parent.mkdir(parents=True, exist_ok=True)
-    with file.with_name(f"{file.name}.lock").open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+    with lock.held(file.with_name(f"{file.name}.lock")):
         yield
 
 

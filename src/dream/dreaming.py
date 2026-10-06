@@ -13,7 +13,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from dream.archive import Archive, Undreamt
+from dream.archive import Archive, Undreamt, has_folder
 from dream.claims import Claim, Provenance, Scope, Status
 from dream.extract import ExtractionError, Rejected, Runner, extract, from_json, to_json
 from dream.gate import Judge, check, index_still_leads
@@ -294,7 +294,7 @@ def publish_project(
     The copy first takes in whatever sessions wrote since the dream last looked, so publishing
     never overwrites or removes a session's work.
     """
-    if not project.startswith("/"):
+    if not has_folder(project):
         raise LookupError(f"{project} has no folder of its own for Claude Code to load memory from")
     mirror = Mirror(memory_root / key(project))
     if not mirror.folder.exists():
@@ -366,7 +366,7 @@ def _closed_by(store: MemoryStore, session_id: str, now: str) -> dict[str, str]:
 def known(memory_root: Path) -> list[str]:
     """Projects the dream already keeps a copy of memory for."""
     noted = sorted(memory_root.glob(f"*/{SIDE}/project.json")) if memory_root.is_dir() else []
-    return [json.loads(file.read_text())["project"] for file in noted]
+    return [json.loads(file.read_text(encoding="utf-8"))["project"] for file in noted]
 
 
 def _gone(store: MemoryStore, project: str) -> list[Op]:

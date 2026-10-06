@@ -251,6 +251,22 @@ test('reading a memory in the copy the dream keeps is noted as well', async ($, 
   expect(calls).toEqual([['dream', 'note-read', '/home/me/.local/share/remcycle/memory/-work-shop/ci-runner.md']])
 })
 
+test('a memory read by a path written the way Windows writes it is noted like any other', async ($, on) => {
+  const calls = commandLine(on, { 'note-read': '' })
+  on('tool.call', { tool: 'Read' }, async () => ({ result: { type: 'text' } as never }))
+  const own = 'C:\\Users\\me\\.claude\\projects\\C--work-shop\\memory\\deploy-script.md'
+  const kept = 'C:\\Users\\me\\.local\\share\\remcycle\\memory\\C--work-shop\\ci-runner.md'
+
+  await $.tool.call({ tool: 'Read', file_path: own })
+  await $.tool.call({ tool: 'Read', file_path: kept })
+  await $.tool.call({ tool: 'Read', file_path: 'C:\\work\\shop\\src\\app.ts' })
+
+  expect(calls).toEqual([
+    ['dream', 'note-read', own],
+    ['dream', 'note-read', kept],
+  ])
+})
+
 test('the archive is brought up to date when a session ends', async ($, on) => {
   const calls = commandLine(on, { ingest: '1 added, 0 updated, 0 unchanged, 0 excluded\n' })
 
@@ -394,6 +410,18 @@ test('questions waiting in another project are named, and the pane can go there 
     expect(await ui.find({ key: 'home-project' })).toBeUndefined()
     await ui.unmount()
   }
+})
+
+test('a project is named by its folder, whichever way its path is written', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  const onWindows = { ...STATUS, project: 'C:\\work\\shop', elsewhere: [{ project: 'C:\\work\\site', waiting: 3 }] }
+  commandLine(on, { status: JSON.stringify(onWindows) })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'refresh' })
+
+  expect(await ui.find({ type: 'Text', text: /^shop$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^site: 3 waiting$/ })).toBeDefined()
+  await ui.unmount()
 })
 
 test('on the first screen a long statement is cut at a word, and shown whole behind the button', async ($, on) => {

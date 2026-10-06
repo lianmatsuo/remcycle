@@ -1,3 +1,8 @@
+import os
+import subprocess
+import sys
+import time
+
 import dream.daily
 
 
@@ -25,10 +30,34 @@ def test_the_background_run_is_cut_loose_from_the_session_that_started_it(tmp_pa
     }
 
     assert dream.daily.start(["dream"], tmp_path / "daily.log", env=session) == 4242
-    assert (seen["start_new_session"], seen["cwd"]) == (True, tmp_path)
+    if sys.platform == "win32":
+        assert seen["creationflags"] == subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+    else:
+        assert seen["start_new_session"] is True
+    assert seen["cwd"] == tmp_path
     assert seen["env"] == {
         "PATH": "/usr/bin:/bin",
         "CLAUDE_CONFIG_DIR": "/home/me/.claude",
         "ANTHROPIC_API_KEY": "sk-test",
         "CLAUDE_CODE_USE_BEDROCK": "1",
     }
+
+
+def test_the_background_run_writes_what_it_prints_to_its_log(tmp_path):
+    log = tmp_path / "data" / "daily.log"
+
+    pid = dream.daily.start([sys.executable, "-c", "print('the dream ran')"], log)
+    assert pid > 0
+    waited_until = time.monotonic() + 30
+    while "the dream ran" not in log.read_text(encoding="utf-8") and time.monotonic() < waited_until:
+        time.sleep(0.05)
+    assert "the dream ran" in log.read_text(encoding="utf-8")
+
+
+def test_a_process_counts_as_running_until_it_has_ended():
+    ended = subprocess.Popen([sys.executable, "-c", "pass"])
+    ended.wait()
+
+    assert dream.daily.is_alive(os.getpid())
+    assert not dream.daily.is_alive(ended.pid)
+    assert not dream.daily.is_alive(None)

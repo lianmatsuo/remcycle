@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+import dream.disk
 import dream.dreaming
 from dream.archive import Archive
 from dream.claims import Claim, ClaimType, Evidence, Provenance, Scope, Status
@@ -35,8 +36,8 @@ def claude(tmp_path):
     root = tmp_path / "projects"
     memory = root / "-work-shop" / "memory"
     memory.mkdir(parents=True)
-    (memory / "deploy-target.md").write_text(LEGACY)
-    (memory / "MEMORY.md").write_text("- [Deploy target](deploy-target.md) — staging first\n")
+    (memory / "deploy-target.md").write_text(LEGACY, encoding="utf-8", newline="\n")
+    (memory / "MEMORY.md").write_text("- [Deploy target](deploy-target.md) — staging first\n", encoding="utf-8", newline="\n")
     return root
 
 
@@ -102,7 +103,7 @@ def test_a_dream_adds_what_a_session_established_to_its_own_copy_and_leaves_live
 
     copy = tmp_path / "memory" / "-work-shop"
     assert sorted(MemoryStore(copy).entries()) == ["deploy-target", "package-manager"]
-    assert (copy / "MEMORY.md").read_text() == (
+    assert (copy / "MEMORY.md").read_text(encoding="utf-8") == (
         "- [Deploy target](deploy-target.md) — staging first\n"
         "- [Package manager](package-manager.md) — Use pnpm for JS projects.\n"
     )
@@ -123,7 +124,7 @@ def test_publishing_writes_the_accepted_memory_to_live_and_nothing_else(archive,
 
     assert report.projects[0].published is True
     assert sorted(p.name for p in live.iterdir()) == ["MEMORY.md", "deploy-target.md", "package-manager.md"]
-    assert "package-manager.md" in (live / "MEMORY.md").read_text()
+    assert "package-manager.md" in (live / "MEMORY.md").read_text(encoding="utf-8")
 
 
 def test_a_memory_a_session_wrote_since_the_last_dream_is_taken_in_and_nothing_the_dream_added_is_lost(
@@ -132,15 +133,15 @@ def test_a_memory_a_session_wrote_since_the_last_dream_is_taken_in_and_nothing_t
     pnpm_session(claude)
     dreamt(archive, claude, tmp_path, Model())
     live = claude / "-work-shop" / "memory"
-    (live / "ci-runner.md").write_text(LEGACY.replace("deploy-target", "ci-runner").replace("Deploys go to the staging cluster first", "CI is self-hosted"))
-    (live / "MEMORY.md").write_text((live / "MEMORY.md").read_text() + "- [CI runner](ci-runner.md) — self-hosted\n")
+    (live / "ci-runner.md").write_text(LEGACY.replace("deploy-target", "ci-runner").replace("Deploys go to the staging cluster first", "CI is self-hosted"), encoding="utf-8", newline="\n")
+    (live / "MEMORY.md").write_text((live / "MEMORY.md").read_text(encoding="utf-8") + "- [CI runner](ci-runner.md) — self-hosted\n", encoding="utf-8", newline="\n")
     put_session(claude, "s-later", [human("nothing worth keeping", 0)], cwd=PROJECT)
 
     dreamt(archive, claude, tmp_path, Model())
 
     copy = tmp_path / "memory" / "-work-shop"
     assert sorted(MemoryStore(copy).entries()) == ["ci-runner", "deploy-target", "package-manager"]
-    assert (copy / "MEMORY.md").read_text() == (
+    assert (copy / "MEMORY.md").read_text(encoding="utf-8") == (
         "- [Deploy target](deploy-target.md) — staging first\n"
         "- [CI runner](ci-runner.md) — self-hosted\n"
         "- [Package manager](package-manager.md) — Use pnpm for JS projects.\n"
@@ -182,7 +183,7 @@ def test_nothing_is_published_if_live_memory_changed_while_the_dream_ran(archive
 
     class WritesMeanwhile(Model):
         def __call__(self, prompt):
-            (live / "written-meanwhile.md").write_text(LEGACY)
+            (live / "written-meanwhile.md").write_text(LEGACY, encoding="utf-8", newline="\n")
             return super().__call__(prompt)
 
     report = dreamt(archive, claude, tmp_path, WritesMeanwhile(), publish=True)
@@ -281,7 +282,7 @@ def test_a_new_session_is_handed_what_the_dream_learned_that_claude_codes_own_me
         1,
     )
 
-    (claude / "-work-shop" / "memory" / "package-manager.md").write_text((copy / "package-manager.md").read_text())
+    (claude / "-work-shop" / "memory" / "package-manager.md").write_text((copy / "package-manager.md").read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
     after = context(tmp_path / "memory", PROJECT, now="2026-10-03T09:00:00+00:00", live_root=claude)
     assert after["learned"] == [{"slot": "ci-runner", "statement": "CI is self-hosted."}]
 
@@ -358,7 +359,7 @@ def test_an_accept_that_is_cut_short_leaves_a_whole_copy_and_is_finished_by_the_
 
     def dying_rename(source, target):
         renames.append(source)
-        if dies_at == f"the {['first', 'second', 'third'][len(renames) - 1]} rename":
+        if dies_at == f"the {dict(enumerate(['first', 'second', 'third'], 1)).get(len(renames))} rename":
             raise OSError("the process was killed")
         rename(source, target)
 
@@ -512,7 +513,7 @@ def test_a_fact_about_a_file_that_has_gone_is_withheld_by_the_next_dream_even_wi
 ):
     repo = tmp_path / "shop"
     (repo / "infra").mkdir(parents=True)
-    (repo / "infra" / "deploy.sh").write_text("#!/bin/sh\n")
+    (repo / "infra" / "deploy.sh").write_text("#!/bin/sh\n", encoding="utf-8", newline="\n")
     put_session(claude, "s-fact", [human("deploys always run through infra/deploy.sh, never by hand", 0)], cwd=str(repo))
     fact = {**PNPM, "slot": "deploy-script", "type": "fact", "statement": "Deploys run through infra/deploy.sh.",
             "first_turn": 0, "last_turn": 0, "quote": "deploys always run through infra/deploy.sh", "anchor": "infra/deploy.sh"}
@@ -549,7 +550,7 @@ def test_an_entry_the_person_corrected_the_assistant_for_following_is_demoted_an
 
     copy = tmp_path / "memory" / "-work-shop"
     assert (copy / "deploy-target.md").exists()
-    assert (copy / "MEMORY.md").read_text() == ""
+    assert (copy / "MEMORY.md").read_text(encoding="utf-8") == ""
     assert [item.reason for item in MemoryStore(copy).queue()] == [
         "the person corrected the assistant after it followed this: dream show s-correc --first 0 --last 0"
     ]
@@ -605,8 +606,8 @@ def test_a_review_keeps_one_line_per_entry_when_the_index_by_topic_leads_to_fewe
     live.mkdir(parents=True)
     slots = [f"note_{n:02d}" for n in range(61)]
     for slot in slots:
-        (live / f"{slot}.md").write_text(LEGACY.replace("deploy-target", slot))
-    (live / "MEMORY.md").write_text("".join(f"- [{slot}]({slot}.md) — a note\n" for slot in slots))
+        (live / f"{slot}.md").write_text(LEGACY.replace("deploy-target", slot), encoding="utf-8", newline="\n")
+    (live / "MEMORY.md").write_text("".join(f"- [{slot}]({slot}.md) — a note\n" for slot in slots), encoding="utf-8", newline="\n")
 
     def reviewer(prompt):
         shown = [line[4:] for line in prompt.split("## Notes")[1].splitlines() if line.startswith("### ")]
@@ -626,7 +627,7 @@ def test_a_review_keeps_one_line_per_entry_when_the_index_by_topic_leads_to_fewe
     copy = MemoryStore(tmp_path / "memory" / "-work-shop")
     assert (report.reviewed, report.merged, report.kept_flat) == (61, True, True)
     assert not copy.by_topic()
-    assert (tmp_path / "memory" / "-work-shop" / "MEMORY.md").read_text() == (live / "MEMORY.md").read_text()
+    assert (tmp_path / "memory" / "-work-shop" / "MEMORY.md").read_text(encoding="utf-8") == (live / "MEMORY.md").read_text(encoding="utf-8")
     assert (copy.topics(), len(copy.probes())) == (["Deploys", "Tooling"], 61)
 
 
@@ -668,7 +669,7 @@ def test_publishing_a_project_lists_the_change_first_and_writes_it_only_when_tol
 
     assert done.written
     assert sorted(p.name for p in live.iterdir()) == ["MEMORY.md", "package-manager.md"]
-    assert (live / "MEMORY.md").read_text() == "- [Package manager](package-manager.md) — Use pnpm for JS projects.\n"
+    assert (live / "MEMORY.md").read_text(encoding="utf-8") == "- [Package manager](package-manager.md) — Use pnpm for JS projects.\n"
     assert {p.name: p.read_bytes() for p in done.backup.iterdir()} == before
 
     again = publish_project(PROJECT, **where, write=True)
@@ -679,20 +680,20 @@ def test_publishing_keeps_what_a_session_wrote_since_the_dream_last_looked(archi
     pnpm_session(claude)
     dreamt(archive, claude, tmp_path, Model())
     live = claude / "-work-shop" / "memory"
-    (live / "release-notes.md").write_text(LEGACY.replace("deploy-target", "release-notes"))
-    with (live / "MEMORY.md").open("a") as index:
+    (live / "release-notes.md").write_text(LEGACY.replace("deploy-target", "release-notes"), encoding="utf-8", newline="\n")
+    with (live / "MEMORY.md").open("a", encoding="utf-8", newline="\n") as index:
         index.write("- [Release notes](release-notes.md) — written by hand each Friday\n")
-    (live / "deploy-target.md").write_text(LEGACY.replace("staging cluster first", "production directly"))
+    (live / "deploy-target.md").write_text(LEGACY.replace("staging cluster first", "production directly"), encoding="utf-8", newline="\n")
 
     done = publish_project(
         PROJECT, memory_root=tmp_path / "memory", live_root=claude, backups=tmp_path / "backups", write=True
     )
 
     assert done.removed == []
-    assert "production directly" in (live / "deploy-target.md").read_text()
+    assert "production directly" in (live / "deploy-target.md").read_text(encoding="utf-8")
     assert (live / "release-notes.md").exists()
-    assert "- [Release notes](release-notes.md) — written by hand each Friday\n" in (live / "MEMORY.md").read_text()
-    assert "- [Package manager](package-manager.md)" in (live / "MEMORY.md").read_text()
+    assert "- [Release notes](release-notes.md) — written by hand each Friday\n" in (live / "MEMORY.md").read_text(encoding="utf-8")
+    assert "- [Package manager](package-manager.md)" in (live / "MEMORY.md").read_text(encoding="utf-8")
 
 
 def test_only_a_project_with_a_folder_of_its_own_can_be_published(tmp_path):
@@ -753,3 +754,43 @@ def test_a_dream_told_not_to_ask_leaves_a_session_with_nothing_read_ahead_unread
 
     assert (report.sessions, report.failures) == (0, [])
     assert [s.session_id for s in archive.awaiting_dream()] == ["s-pnpm"]
+
+
+@pytest.mark.parametrize("project", ["/work/shop", "C:\\work\\shop"])
+def test_a_project_is_a_folder_however_its_system_writes_the_path(tmp_path, project):
+    pnpm = Claim("package-manager", ClaimType.PREFERENCE, Scope.PROJECT, "Use pnpm for JS projects.", "", Provenance.HUMAN, Evidence("s-first", 0, 0), "2026-10-01T09:00:00Z")
+    mirror = Mirror(tmp_path / "memory" / dream.dreaming.key(project))
+    mirror.sync(None, project)
+    store = MemoryStore(mirror.stage())
+    store.apply([Add(pnpm), Review("package-manager", "it looks dated: the cutover is over")])
+    mirror.accept("dream: 1 sessions")
+    where = {"memory_root": tmp_path / "memory", "live_root": tmp_path / "projects"}
+
+    given = context(tmp_path / "memory", project, now="2026-10-03T09:00:00+00:00", live_root=tmp_path / "projects")
+    plan = publish_project(project, **where, backups=tmp_path / "backups", write=False)
+
+    assert given["learned"] == [{"slot": "package-manager", "statement": "Use pnpm for JS projects."}]
+    assert status(tmp_path / "memory", "/work/other", now="2026-10-03T09:00:00+00:00")["elsewhere"] == [{"project": project, "waiting": 1}]
+    assert plan.added == ["MEMORY.md", "package-manager.md"]
+
+
+def test_an_accept_refused_while_a_reader_has_a_file_of_the_copy_open_is_made_once_the_reader_lets_go(tmp_path, monkeypatch):
+    pnpm = Claim("package-manager", ClaimType.PREFERENCE, Scope.PROJECT, "Use pnpm for JS projects.", "", Provenance.HUMAN, Evidence("s-first", 0, 0), "2026-10-01T09:00:00Z")
+    mirror = Mirror(tmp_path / "memory" / "-work-shop")
+    mirror.sync(None, PROJECT)
+    MemoryStore(mirror.stage()).apply([Add(pnpm)])
+    rename, refused = os.rename, []
+
+    def refused_once_each(source, target):
+        if source not in refused:
+            refused.append(source)
+            raise PermissionError("another process has a file in the folder open")
+        rename(source, target)
+
+    monkeypatch.setattr(dream.disk, "PATIENCE", 5.0)
+    monkeypatch.setattr(os, "rename", refused_once_each)
+
+    mirror.accept("dream: 1 sessions")
+
+    assert len(refused) == 3
+    assert set(MemoryStore(mirror.folder).entries()) == {"package-manager"}

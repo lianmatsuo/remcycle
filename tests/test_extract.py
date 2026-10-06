@@ -1,7 +1,14 @@
+import json
 import os
+import sys
 
 import pytest
 
+import dream.cli
+import dream.extract
+import dream.gate
+import dream.outside
+import dream.review
 from dream.claims import ClaimType, Evidence, Provenance, Scope
 from dream.extract import ClaudeCode, Correction, ExtractionError, Reply, extract
 from dream.transcript import Author, Kind, Turn
@@ -134,36 +141,85 @@ def test_a_correction_counts_against_an_entry_only_when_the_person_typed_it():
     assert extraction.corrections == (Correction("package-manager", Evidence(SESSION, 3, 3)),)
 
 
-def test_the_model_step_runs_without_the_plugins_of_the_session_that_started_it(tmp_path, monkeypatch):
-    stand_in = tmp_path / "claude"
-    stand_in.write_text(
-        "#!/bin/sh\n"
-        "cat > /dev/null\n"
-        'printf \'{"structured_output": {"plugins": "%s", "hooks": "%s", "home": "%s"}, "total_cost_usd": 0.01}\''
-        ' "${CLAUDE_CODE_PLUGIN_DIRS-unset}" "${CLAUDE_CODE_ENABLE_FUNCTION_HOOKS-unset}" "$HOME"\n'
-    )
-    stand_in.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+STAND_IN = """\
+import json, os, sys
+
+sys.stdin.read()
+env = {name: os.environ.get(name, "unset") for name in ("CLAUDE_CODE_PLUGIN_DIRS", "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS", "HOME")}
+print(json.dumps({"structured_output": {"args": sys.argv[1:], "env": env}, "total_cost_usd": 0.01}))
+"""
+
+
+@pytest.fixture
+def claude(tmp_path, monkeypatch):
+    """A stand-in for the `claude` command, first on the path: it answers with the arguments and environment it was given."""
+    program = tmp_path / "claude.py"
+    program.write_text(STAND_IN, encoding="utf-8", newline="\n")
+    if sys.platform == "win32":
+        # Windows starts a command of this kind from a batch file, as it does a Claude Code installed with npm.
+        (tmp_path / "claude.cmd").write_text(f'@"{sys.executable}" "{program}" %*\n', encoding="utf-8", newline="\r\n")
+    else:
+        launcher = tmp_path / "claude"
+        launcher.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{program}" "$@"\n', encoding="utf-8", newline="\n")
+        launcher.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
+
+
+def test_the_model_step_runs_without_the_plugins_of_the_session_that_started_it(claude, monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_PLUGIN_DIRS", "/somewhere/mod")
     monkeypatch.setenv("CLAUDE_CODE_ENABLE_FUNCTION_HOOKS", "1")
     monkeypatch.setenv("HOME", "/home/me")
 
     reply = ClaudeCode()("what did this session establish?")
 
-    assert reply.data == {"plugins": "unset", "hooks": "unset", "home": "/home/me"}
+    assert reply.data["env"] == {"CLAUDE_CODE_PLUGIN_DIRS": "unset", "CLAUDE_CODE_ENABLE_FUNCTION_HOOKS": "unset", "HOME": "/home/me"}
     assert reply.cost_usd == 0.01
 
 
-def test_the_model_step_loads_no_mcp_servers_and_no_skills(tmp_path, monkeypatch):
-    stand_in = tmp_path / "claude"
-    stand_in.write_text(
-        "#!/bin/sh\n"
-        "cat > /dev/null\n"
-        'case " $* " in *" --strict-mcp-config "*) mcp=off ;; *) mcp=on ;; esac\n'
-        'case " $* " in *" --disable-slash-commands "*) skills=off ;; *) skills=on ;; esac\n'
-        'printf \'{"structured_output": {"mcp": "%s", "skills": "%s"}, "total_cost_usd": 0.01}\' "$mcp" "$skills"\n'
-    )
-    stand_in.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{tmp_path}:{os.environ['PATH']}")
+def test_the_model_step_loads_no_mcp_servers_and_no_skills(claude):
+    args = ClaudeCode()("what did this session establish?").data["args"]
 
-    assert ClaudeCode()("what did this session establish?").data == {"mcp": "off", "skills": "off"}
+    assert "--strict-mcp-config" in args and "--disable-slash-commands" in args
+
+
+@pytest.mark.parametrize(
+    ("schema", "system"),
+    [
+        (dream.extract.SCHEMA, dream.extract.SYSTEM),
+        (dream.gate.JUDGE_SCHEMA, dream.gate.JUDGE_SYSTEM),
+        (dream.outside.SCHEMA, dream.outside.SYSTEM),
+        (dream.review.SCHEMA, dream.review.SYSTEM),
+    ],
+)
+def test_what_each_model_step_asks_for_reaches_claude_code_as_written(claude, schema, system):
+    args = ClaudeCode(schema=schema, system=system)("what did this session establish?").data["args"]
+
+    def after(switch):
+        return args[args.index(switch) + 1]
+
+    assert json.loads(after("--json-schema")) == schema
+    assert after("--system-prompt") == system
+    assert (after("--tools"), after("--setting-sources")) == ("", "")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows looks for a program in the current folder before the path")
+def test_on_windows_a_program_is_never_taken_from_the_folder_the_command_runs_in(tmp_path, monkeypatch, capsys):
+    monkeypatch.delenv("NoDefaultCurrentDirectoryInExePath", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no-settings"))
+    project = tmp_path / "a-project-someone-sent"
+    project.mkdir()
+    (project / "claude.cmd").write_text("@echo this is not Claude Code\n", encoding="utf-8", newline="\r\n")
+    monkeypatch.chdir(project)
+    monkeypatch.setenv("PATH", str(tmp_path / "nothing-here"))
+
+    assert dream.cli.main(["queue", "--db", str(tmp_path / "archive.db"), "--memory", str(tmp_path / "memory")]) == 0
+
+    with pytest.raises(ExtractionError, match="no claude command"):
+        ClaudeCode()("what did this session establish?")
+
+
+def test_a_machine_without_claude_code_is_an_error_that_says_so(tmp_path, monkeypatch):
+    monkeypatch.setenv("PATH", str(tmp_path))
+
+    with pytest.raises(ExtractionError, match="no claude command"):
+        ClaudeCode()("what did this session establish?")

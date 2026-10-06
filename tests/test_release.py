@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _released() -> str:
-    return tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+    return tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
 
 
 def test_the_command_says_which_release_it_is(tmp_path, capsys, monkeypatch):
@@ -24,10 +24,10 @@ def test_the_command_says_which_release_it_is(tmp_path, capsys, monkeypatch):
 
 
 def test_a_release_is_one_version_everywhere_it_is_written():
-    lock = tomllib.loads((ROOT / "uv.lock").read_text())
+    lock = tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))
     locked = next(package["version"] for package in lock["package"] if package["name"] == "remcycle")
-    mod = json.loads((ROOT / "mod/.claude-plugin/plugin.json").read_text())["version"]
-    listing = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text())["plugins"][0]["source"]
+    mod = json.loads((ROOT / "mod/.claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"]
+    listing = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))["plugins"][0]["source"]
 
     assert {"uv.lock": locked, "mod/.claude-plugin/plugin.json": mod, ".claude-plugin/marketplace.json": listing["ref"]} == {
         "uv.lock": _released(),

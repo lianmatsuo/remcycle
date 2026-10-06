@@ -3,19 +3,21 @@
 import json
 from pathlib import Path
 
+from dream.dreaming import key
+
 SESSION_ID = "11111111-aaaa-4bbb-8ccc-000000000001"
 
 
 def write_transcript(path: Path, rows: list[dict]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8", newline="\n")
     return path
 
 
 def put_session(root: Path, session_id: str, rows: list[dict], cwd: str = "/repo") -> Path:
     """Write rows as one session's transcript, laid out under root as Claude Code does."""
     stamped = [{**row, "sessionId": session_id, **({"cwd": cwd} if "cwd" in row else {})} for row in rows]
-    return write_transcript(root / cwd.strip("/").replace("/", "-") / f"{session_id}.jsonl", stamped)
+    return write_transcript(root / key(cwd) / f"{session_id}.jsonl", stamped)
 
 
 def _row(type_: str, n: int, **fields) -> dict:

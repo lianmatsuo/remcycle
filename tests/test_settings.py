@@ -25,18 +25,18 @@ def test_locations_follow_the_environment(tmp_path):
 def test_excluded_projects_come_from_the_settings_file(tmp_path):
     file = tmp_path / "xdg" / "remcycle" / "config.toml"
     file.parent.mkdir(parents=True)
-    file.write_text('exclude = ["~/work/private-client", "/srv/other"]\n')
+    file.write_text("""exclude = ["~/work/private-client", "/srv/other", '~\\work-for-another-client']\n""", encoding="utf-8", newline="\n")
 
     settings = load_settings({"XDG_CONFIG_HOME": str(tmp_path / "xdg")}, tmp_path)
 
-    assert settings.exclude == (str(tmp_path / "work" / "private-client"), "/srv/other")
+    assert settings.exclude == (str(tmp_path / "work" / "private-client"), "/srv/other", str(tmp_path / "work-for-another-client"))
 
 
 @pytest.mark.parametrize("contents", ["exclude = [", 'exclude = "~/work/private-client"\n'])
 def test_a_settings_file_that_cannot_be_used_is_an_error_naming_the_file(tmp_path, contents):
     file = tmp_path / ".config" / "remcycle" / "config.toml"
     file.parent.mkdir(parents=True)
-    file.write_text(contents)
+    file.write_text(contents, encoding="utf-8", newline="\n")
 
     with pytest.raises(ValueError, match="config.toml"):
         load_settings({}, tmp_path)
@@ -47,7 +47,7 @@ def test_the_dream_keeps_its_memory_copies_and_reports_beside_the_archive_and_as
     file.parent.mkdir(parents=True)
 
     default = load_settings({}, tmp_path)
-    file.write_text('model = "haiku"\n')
+    file.write_text('model = "haiku"\n', encoding="utf-8", newline="\n")
     chosen = load_settings({}, tmp_path)
 
     assert default.memory == tmp_path / ".local" / "share" / "remcycle" / "memory"
@@ -60,7 +60,7 @@ def test_how_hard_the_model_thinks_is_left_to_claude_code_unless_the_settings_sa
     file.parent.mkdir(parents=True)
 
     default = load_settings({}, tmp_path)
-    file.write_text('effort = "low"\n')
+    file.write_text('effort = "low"\n', encoding="utf-8", newline="\n")
 
     assert (default.effort, load_settings({}, tmp_path).effort) == (None, "low")
 
@@ -70,7 +70,7 @@ def test_the_daily_dream_is_on_reads_only_new_sessions_and_has_no_cap_until_the_
     file.parent.mkdir(parents=True)
 
     default = load_settings({}, tmp_path)
-    file.write_text('daily_dream = false\ndaily_history = "week"\ndaily_limit = 5\n')
+    file.write_text('daily_dream = false\ndaily_history = "week"\ndaily_limit = 5\n', encoding="utf-8", newline="\n")
     chosen = load_settings({}, tmp_path)
 
     assert (default.daily, default.daily_history, default.daily_limit) == (True, None, None)
@@ -81,7 +81,7 @@ def test_the_daily_dream_is_on_reads_only_new_sessions_and_has_no_cap_until_the_
 def test_a_daily_dream_setting_that_cannot_be_used_is_an_error_naming_the_file(tmp_path, contents):
     file = tmp_path / ".config" / "remcycle" / "config.toml"
     file.parent.mkdir(parents=True)
-    file.write_text(contents)
+    file.write_text(contents, encoding="utf-8", newline="\n")
 
     with pytest.raises(ValueError, match="config.toml"):
         load_settings({}, tmp_path)

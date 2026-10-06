@@ -4,7 +4,7 @@ remcycle collects nothing about you. It has no server, no account and no telemet
 
 ## What it keeps, on your machine
 
-- **The archive**, `~/.local/share/remcycle/archive.db`: what you typed into each Claude Code session and what Claude wrote back, word for word. Tool output is left out, and text shaped like a password or an API key is blanked before it is stored. The file is readable only by your user.
+- **The archive**, `~/.local/share/remcycle/archive.db`: what you typed into each Claude Code session and what Claude wrote back, word for word. Tool output is left out, and text shaped like a password or an API key is blanked before it is stored. The file is readable only by your user, and [the reference](docs/reference.md#what-the-archive-holds-and-what-protects-it) says how on each system.
 - **The dream's copy of memory**, its reports and the backups it takes before publishing, beside the archive.
 - **Your settings**, `~/.config/remcycle/config.toml`.
 

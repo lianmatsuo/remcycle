@@ -5,7 +5,7 @@ import re
 import sqlite3
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Self
 
 from dream.redact import redact
@@ -64,8 +64,11 @@ END;
 """
 
 
-_CLAUDE_WORKTREE = re.compile(r"/\.claude/worktrees/.*")
-_LINKED_WORKTREE = re.compile(r"gitdir:\s*(.*)/\.git/worktrees/[^/]+\s*$")
+# A path is matched with either slash between its parts, as on Windows it can be written with either.
+_CLAUDE_WORKTREE = re.compile(r"[\\/]\.claude[\\/]worktrees[\\/].*")
+_LINKED_WORKTREE = re.compile(r"gitdir:\s*(.*)[\\/]\.git[\\/]worktrees[\\/][^\\/]+\s*$")
+_SCRATCH = re.compile(r"[\\/]scratch-workspaces[\\/]")
+_DRIVE = re.compile(r"[A-Za-z]:[\\/]")
 
 
 NO_PROJECT = "(no project)"
@@ -79,20 +82,43 @@ def project_of(cwd: str | None) -> str:
     worktree while it still exists; once it is gone, only Claude's own worktree layout
     can still be recognised, from the path.
     """
-    if not cwd or "/scratch-workspaces/" in cwd:  # where the desktop app puts a session with no folder
+    if not cwd or _SCRATCH.search(cwd):  # where the desktop app puts a session with no folder
         return NO_PROJECT
     for folder in (Path(cwd), *Path(cwd).parents):
         marker = folder / ".git"
-        if marker.is_file() and (linked := _LINKED_WORKTREE.match(marker.read_text())):
-            return linked[1]
+        if marker.is_file() and (linked := _LINKED_WORKTREE.match(marker.read_text(encoding="utf-8"))):
+            return _spelled(linked[1])
         if marker.exists():
-            return str(folder)
-    return _CLAUDE_WORKTREE.sub("", cwd)
+            return _spelled(str(folder))
+    return _spelled(_CLAUDE_WORKTREE.sub("", cwd))
+
+
+def has_folder(project: str) -> bool:
+    """Whether the project is a folder, and not the group of sessions started without one."""
+    return PurePosixPath(project).is_absolute() or PureWindowsPath(project).is_absolute()
+
+
+def _spelled(folder: str) -> str:
+    """A folder's path spelled one way. Windows takes `c:/work` and `C:\\work` for the same folder."""
+    if not _DRIVE.match(folder):
+        return folder
+    return str(PureWindowsPath(folder[0].upper() + folder[1:]))
 
 
 def _within(project: str | None, parents: Iterable[str]) -> bool:
     """Whether the project is one of `parents` or lies inside one."""
-    return any(project == parent or (project or "").startswith(parent.rstrip("/") + "/") for parent in parents)
+    here = _compared(project or "")
+    for parent in map(_compared, parents):
+        inside = parent.rstrip("/\\")
+        if here == parent or here.startswith((inside + "/", inside + "\\")):
+            return True
+    return False
+
+
+def _compared(folder: str) -> str:
+    """A folder's path as it is set against another. Windows takes `C:\\Work` and `C:\\work` for the same folder."""
+    spelled = _spelled(folder)
+    return spelled.casefold() if _DRIVE.match(spelled) else spelled
 
 
 @dataclass(frozen=True)
@@ -327,7 +353,8 @@ class Archive:
             JOIN sessions s ON s.session_id = t.session_id
             WHERE turns_fts MATCH :match
               AND (:project IS NULL OR s.project = :project
-                   OR substr(s.project, 1, length(:project) + 1) = :project || '/')
+                   OR (substr(s.project, 1, length(:project)) = :project
+                       AND substr(s.project, length(:project) + 1, 1) IN ('/', '\\')))
               AND (:since IS NULL OR substr(t.timestamp, 1, 10) >= :since)
               AND (:until IS NULL OR substr(t.timestamp, 1, 10) <= :until)
               AND (:tools OR t.kind != 'tool')

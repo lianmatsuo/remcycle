@@ -26,8 +26,14 @@ jobs:
           - { os: ubuntu-24.04, python: "3.12" }
           - { os: ubuntu-24.04, python: "3.14" }
           - { os: macos-15, python: "3.12" }
+          - { os: windows-2025, python: "3.12" }
+          - { os: windows-2025, python: "3.14" }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    defaults:
+      run:
+        # The gate is a bash script, and on Windows a step would otherwise run in PowerShell.
+        shell: bash
     env:
       UV_PYTHON: ${{ matrix.python }}
     steps:

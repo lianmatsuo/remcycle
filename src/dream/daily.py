@@ -3,10 +3,13 @@
 import json
 import os
 import subprocess
+import sys
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
+
+from dream import disk
 
 DUE_AFTER = timedelta(hours=20)
 """How long after one daily dream started the next may start."""
@@ -29,14 +32,12 @@ class State:
 def load(file: Path) -> State:
     if not file.exists():
         return State()
-    return State(**json.loads(file.read_text()))
+    return State(**json.loads(file.read_text(encoding="utf-8")))
 
 
 def save(file: Path, state: State) -> None:
     file.parent.mkdir(parents=True, exist_ok=True)
-    written = file.with_name(f"{file.name}.{os.getpid()}.new")
-    written.write_text(json.dumps(asdict(state)))
-    written.replace(file)
+    disk.put(file, json.dumps(asdict(state)))
 
 
 def begin(state: State, now: str) -> State:
@@ -79,16 +80,24 @@ _SESSION_TIES = frozenset(
 )
 
 
+if sys.platform == "win32":
+    # No console window opens for the run, and it heads a process group of its own, which a Ctrl+C typed
+    # in the session's terminal is not sent to.
+    _CUT_LOOSE = {"creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP}
+else:
+    _CUT_LOOSE = {"start_new_session": True}
+
+
 def start(argv: list[str], log: Path, env: Mapping[str, str] | None = None) -> int:
-    """Run argv in a session of its own, so it carries on after the Claude Code session that started it ends.
+    """Run argv cut loose from this process, so it carries on after the Claude Code session that started it ends.
 
     Returns the new process's id.
     """
     log.parent.mkdir(parents=True, exist_ok=True)
     loose = {name: value for name, value in (os.environ if env is None else env).items() if name not in _SESSION_TIES}
-    with log.open("a") as out:
+    with log.open("a", encoding="utf-8") as out:
         process = subprocess.Popen(
-            argv, stdin=subprocess.DEVNULL, stdout=out, stderr=out, start_new_session=True, cwd=log.parent, env=loose
+            argv, stdin=subprocess.DEVNULL, stdout=out, stderr=out, cwd=log.parent, env=loose, **_CUT_LOOSE
         )
     return process.pid
 
@@ -96,6 +105,8 @@ def start(argv: list[str], log: Path, env: Mapping[str, str] | None = None) -> i
 def is_alive(pid: int | None) -> bool:
     if pid is None:
         return False
+    if sys.platform == "win32":
+        return _is_running(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -103,3 +114,29 @@ def is_alive(pid: int | None) -> bool:
     except PermissionError:
         return True
     return True
+
+
+def _is_running(pid: int) -> bool:
+    """Whether Windows has a process of this id that has not ended.
+
+    Asked of Windows itself, because `os.kill(pid, 0)` there does not ask: it sends the process a Ctrl+C.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    synchronize, access_denied, still_running = 0x00100000, 5, 0x102
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.restype = wintypes.HANDLE
+    kernel.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel.WaitForSingleObject.restype = wintypes.DWORD
+    kernel.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+    kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+    process = kernel.OpenProcess(synchronize, False, pid)
+    if not process:
+        # A process that belongs to someone else cannot be opened, and is there all the same.
+        return ctypes.get_last_error() == access_denied
+    try:
+        # A process that has ended keeps its id for as long as anyone holds it open, so it is asked whether it has.
+        return kernel.WaitForSingleObject(process, 0) == still_running
+    finally:
+        kernel.CloseHandle(process)

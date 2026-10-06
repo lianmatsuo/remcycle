@@ -68,7 +68,7 @@ def parse_transcript(path: Path) -> Session:
         if text:
             turns.append(Turn(len(turns), author, kind, text, row.get("uuid"), row.get("timestamp")))
 
-    with path.open() as lines:
+    with path.open(encoding="utf-8") as lines:
         for line in lines:
             try:
                 row = json.loads(line)

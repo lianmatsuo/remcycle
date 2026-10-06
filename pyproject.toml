@@ -60,3 +60,6 @@ src = ["src", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# The gate has Python warn wherever text is read or written without naming its encoding, which
+# would otherwise be the system's own: UTF-8 on macOS and Linux, a code page on Windows.
+filterwarnings = ["error::EncodingWarning"]

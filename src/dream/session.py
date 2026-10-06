@@ -7,6 +7,7 @@ what the dream has accepted whether or not it has been published.
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from dream.archive import has_folder
 from dream.claims import Provenance, Status
 from dream.dreaming import GLOBAL, key, known
 from dream.memory import INDEX, INDEX_BYTE_LIMIT, INDEX_LINE_LIMIT, MemoryStore
@@ -22,7 +23,7 @@ def context(memory_root: Path, project: str, now: str, live_root: Path, room: in
     everywhere = MemoryStore(memory_root / key(GLOBAL)).entries().values()
     store = MemoryStore(memory_root / key(project))
     # Sessions started without a folder share one group and little else, so they are handed none of it.
-    learned, more = _learned(store, live_root / key(project) / "memory", room, now) if project.startswith("/") else ([], 0)
+    learned, more = _learned(store, live_root / key(project) / "memory", room, now) if has_folder(project) else ([], 0)
     return {
         "everywhere": [entry.statement for entry in everywhere if entry.status == Status.ACTIVE],
         "learned": learned,
@@ -85,7 +86,7 @@ def status(memory_root: Path, project: str, now: str, live_root: Path | None = N
     store = MemoryStore(memory_root / key(project))
     entries = store.entries()
     index = store.folder / INDEX
-    listed = index.read_text() if index.exists() else ""
+    listed = index.read_text(encoding="utf-8") if index.exists() else ""
     return {
         "project": project,
         "withheld": sum(entry.status != Status.ACTIVE for entry in entries.values()),
@@ -120,7 +121,7 @@ def status(memory_root: Path, project: str, now: str, live_root: Path | None = N
 
 def _waiting_elsewhere(memory_root: Path, project: str) -> list[dict]:
     """The other projects with questions waiting for the person, most questions first."""
-    others = {other for other in known(memory_root) if other != project and other.startswith("/")}
+    others = {other for other in known(memory_root) if other != project and has_folder(other)}
     counted = [(len(MemoryStore(memory_root / key(other)).queue()), other) for other in sorted(others)]
     return [{"project": other, "waiting": waiting} for waiting, other in sorted(counted, key=lambda c: -c[0]) if waiting]
 

@@ -1,6 +1,6 @@
-import fcntl
 import json
 import os
+import subprocess
 import sys
 from dataclasses import replace
 
@@ -11,6 +11,7 @@ from dream.claims import Claim, ClaimType, Evidence, Provenance, Scope
 from dream.cli import main
 from dream.dreaming import GLOBAL, DreamReport, key
 from dream.extract import Thread
+from dream.lock import Busy, held
 from dream.memory import MemoryStore
 from dream.mirror import Mirror
 from dream.reconcile import Add, Review
@@ -142,12 +143,12 @@ def test_a_memory_that_a_search_brings_up_is_counted_as_looked_up(tmp_path, caps
     # So is reading it in Claude Code's own folder, which keeps a project's memories one level down.
     theirs = tmp_path / "claude" / "projects" / copy.folder.name / "memory" / "package-manager.md"
     theirs.parent.mkdir(parents=True)
-    theirs.write_text((copy.folder / "package-manager.md").read_text())
+    theirs.write_text((copy.folder / "package-manager.md").read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
     assert main(["note-read", str(theirs), "--memory", str(memory), "--db", str(tmp_path / "archive.db")]) == 0
     assert copy.reads("package-manager") == 3
 
     # A copy the dream is in the middle of replacing is passed over: the search still answers.
-    (copy.folder / ".remcycle" / "entries.json").write_text('{"package-manager": {"evid')
+    (copy.folder / ".remcycle" / "entries.json").write_text('{"package-manager": {"evid', encoding="utf-8", newline="\n")
     capsys.readouterr()
     assert main(["search", *scope, "pnpm"]) == 0
     answered = capsys.readouterr().out
@@ -223,7 +224,7 @@ def test_purge_lists_what_an_exclusion_would_remove_and_removes_it_only_when_tol
     db = str(tmp_path / "archive.db")
     assert main(["ingest", "--root", str(root), "--db", db]) == 0
     capsys.readouterr()
-    (settings / "config.toml").write_text('exclude = ["/work/private-client"]\n')
+    (settings / "config.toml").write_text('exclude = ["/work/private-client"]\n', encoding="utf-8", newline="\n")
 
     assert main(["purge", "--db", db]) == 0
     listed = capsys.readouterr().out
@@ -252,9 +253,7 @@ def test_commands_that_change_memory_take_turns_and_say_so_when_they_cannot(tmp_
     copy.note_threads([Thread("ci-cache", "CI cache for pnpm is not set up.", True, 4)], "session-a", "2026-10-01T09:00:00Z")
     scope = ["--project", str(project), "--memory", str(memory), "--db", str(tmp_path / "archive.db")]
 
-    with (memory / ".lock").open("w") as other_command:
-        fcntl.flock(other_command, fcntl.LOCK_EX)
-
+    with held(memory / ".lock"):  # as another command would, while it changes memory
         assert main(["close", "ci-cache", *scope]) == 1
         assert "another dream command is changing memory" in capsys.readouterr().err
         assert list(copy.threads(now="2026-10-02T09:00:00Z")) == ["ci-cache"]
@@ -272,11 +271,11 @@ def test_publish_shows_what_it_would_write_and_writes_only_with_yes(tmp_path, ca
     name = key(str(project.resolve()))
     live = tmp_path / "projects" / name / "memory"
     live.mkdir(parents=True)
-    (live / "deploy-target.md").write_text("---\nname: deploy-target\ndescription: staging first\n---\n\nStaging first.\n")
-    (live / "MEMORY.md").write_text("- [Deploy target](deploy-target.md) — staging first\n")
+    (live / "deploy-target.md").write_text("---\nname: deploy-target\ndescription: staging first\n---\n\nStaging first.\n", encoding="utf-8", newline="\n")
+    (live / "MEMORY.md").write_text("- [Deploy target](deploy-target.md) — staging first\n", encoding="utf-8", newline="\n")
     memory = tmp_path / "data" / "memory"
     Mirror(memory / name).sync(live, str(project.resolve()))
-    (memory / name / "ci-runner.md").write_text("---\nname: ci-runner\ndescription: self-hosted\n---\n\nCI is self-hosted.\n")
+    (memory / name / "ci-runner.md").write_text("---\nname: ci-runner\ndescription: self-hosted\n---\n\nCI is self-hosted.\n", encoding="utf-8", newline="\n")
     scope = ["--project", str(project), "--memory", str(memory), "--root", str(tmp_path / "projects"), "--db", str(tmp_path / "a.db")]
 
     assert main(["publish", *scope]) == 0
@@ -335,12 +334,12 @@ def test_the_daily_dream_is_changed_in_the_settings_file_and_does_nothing_while_
     monkeypatch.setattr(dream.daily, "start", lambda argv, log: started.append(argv))
     file = tmp_path / "config" / "remcycle" / "config.toml"
     file.parent.mkdir(parents=True)
-    file.write_text('# Leave the client out.\nexclude = ["~/work/client"]\n')
+    file.write_text('# Leave the client out.\nexclude = ["~/work/client"]\n', encoding="utf-8", newline="\n")
     db = ["--db", str(tmp_path / "archive.db")]
 
     for change in (["off"], ["history", "week"], ["limit", "5"]):
         assert main(["daily", *change, *db]) == 0
-    assert file.read_text() == (
+    assert file.read_text(encoding="utf-8") == (
         '# Leave the client out.\nexclude = ["~/work/client"]\ndaily_dream = false\ndaily_history = "week"\ndaily_limit = 5\n'
     )
     capsys.readouterr()
@@ -350,7 +349,7 @@ def test_the_daily_dream_is_changed_in_the_settings_file_and_does_nothing_while_
 
     assert main(["daily", "on", *db]) == 0
     assert main(["daily", "limit", "none", *db]) == 0
-    assert file.read_text() == '# Leave the client out.\nexclude = ["~/work/client"]\ndaily_history = "week"\ndaily_dream = true\n'
+    assert file.read_text(encoding="utf-8") == '# Leave the client out.\nexclude = ["~/work/client"]\ndaily_history = "week"\ndaily_dream = true\n'
     capsys.readouterr()
 
     assert main(["daily", "history", "month", *db]) == 2
@@ -364,7 +363,7 @@ def test_the_background_daily_dream_reads_from_where_the_chosen_history_begins_a
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     file = tmp_path / "config" / "remcycle" / "config.toml"
     file.parent.mkdir(parents=True)
-    file.write_text('daily_history = "week"\ndaily_limit = 5\n')
+    file.write_text('daily_history = "week"\ndaily_limit = 5\n', encoding="utf-8", newline="\n")
     state = tmp_path / "data" / "remcycle" / "daily.json"
     dream.daily.save(state, dream.daily.State(began="2026-10-08T08:00:00+00:00", started="2026-10-08T12:00:00+00:00"))
     monkeypatch.setattr(dream.cli, "_now", lambda: "2026-10-08T12:05:00+00:00")
@@ -416,13 +415,13 @@ def test_turning_the_daily_dream_off_works_when_the_settings_file_has_tables(tmp
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     file = tmp_path / "config" / "remcycle" / "config.toml"
     file.parent.mkdir(parents=True)
-    file.write_text('model = "sonnet"\n\n[extra]\nnote = "x"\n')
+    file.write_text('model = "sonnet"\n\n[extra]\nnote = "x"\n', encoding="utf-8", newline="\n")
     db = ["--db", str(tmp_path / "archive.db")]
 
     assert main(["daily", "off", *db]) == 0
     capsys.readouterr()
 
-    assert file.read_text() == 'model = "sonnet"\ndaily_dream = false\n\n[extra]\nnote = "x"\n'
+    assert file.read_text(encoding="utf-8") == 'model = "sonnet"\ndaily_dream = false\n\n[extra]\nnote = "x"\n'
     assert main(["daily", *db]) == 0
     assert "the daily dream is off" in capsys.readouterr().out
 
@@ -431,11 +430,11 @@ def test_a_settings_file_the_change_cannot_be_made_in_is_reported_not_raised(tmp
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     file = tmp_path / "config" / "remcycle" / "config.toml"
     file.parent.mkdir(parents=True)
-    file.write_text('"daily_dream" = true\n')
+    file.write_text('"daily_dream" = true\n', encoding="utf-8", newline="\n")
 
     assert main(["daily", "off", "--db", str(tmp_path / "archive.db")]) == 2
     assert "config.toml" in capsys.readouterr().err
-    assert file.read_text() == '"daily_dream" = true\n'
+    assert file.read_text(encoding="utf-8") == '"daily_dream" = true\n'
 
 
 def test_a_daily_dream_that_died_is_reported_and_one_still_running_is_left_alone(tmp_path, capsys, monkeypatch):
@@ -469,14 +468,11 @@ def test_the_model_reads_without_holding_the_turn_at_changing_memory_and_the_dre
     seen = []
 
     def turn_is_free():
-        memory.mkdir(parents=True, exist_ok=True)
-        with (memory / ".lock").open("w") as lock:
-            try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                return False
-            fcntl.flock(lock, fcntl.LOCK_UN)
-            return True
+        try:
+            with held(memory / ".lock", wait=0):
+                return True
+        except Busy:
+            return False
 
     def reading(archive, **options):
         seen.append(("reading", turn_is_free()))
@@ -496,3 +492,15 @@ def test_the_model_reads_without_holding_the_turn_at_changing_memory_and_the_dre
     report = capsys.readouterr().out
     assert "2 sessions read, $0.75 of model use" in report
     assert "Could not read s-1: the model gave no answer" in report
+
+
+def test_what_a_command_prints_is_utf8_wherever_it_is_sent(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no-settings"))
+    root, db = tmp_path / "projects", str(tmp_path / "archive.db")
+    said = "naïve café → 日本語 🙂"
+    put_session(root, "7f3a9c2e-1b4d-4e6f-8a90-123456789abc", [human(said, 0)])
+    assert main(["ingest", "--root", str(root), "--db", db]) == 0
+
+    shown = subprocess.run([sys.executable, "-m", "dream.cli", "show", "--db", db, "7f3a9c2e"], capture_output=True, check=True)
+
+    assert said in shown.stdout.decode("utf-8")

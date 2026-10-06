@@ -53,7 +53,9 @@ Witness = Callable[[Path, Sequence[Left]], Witnessed]
 def run(argv: Sequence[str], cwd: Path) -> str | None:
     """What the command printed, or None if it could not be run or failed."""
     try:
-        done = subprocess.run(list(argv), cwd=cwd, capture_output=True, text=True, timeout=_TIMEOUT, check=False)
+        done = subprocess.run(
+            list(argv), cwd=cwd, capture_output=True, text=True, encoding="utf-8", timeout=_TIMEOUT, check=False
+        )
     except (OSError, subprocess.TimeoutExpired):
         return None
     return done.stdout if done.returncode == 0 else None

@@ -8,11 +8,11 @@ every accepted change is in its history.
 
 import hashlib
 import json
-import os
 import shutil
 import subprocess
 from pathlib import Path
 
+from dream import disk
 from dream.memory import INDEX, SIDE, STAGED, MemoryStore
 
 
@@ -44,7 +44,7 @@ class Mirror:
             if synced.get(name) != _digest(path):
                 mine = self.folder / name
                 if name == INDEX:
-                    store.absorb(mine.read_text() if mine.exists() else "", path.read_text())
+                    store.absorb(mine.read_text(encoding="utf-8") if mine.exists() else "", path.read_text(encoding="utf-8"))
                 else:
                     shutil.copyfile(path, mine)
                     store.forget(path.stem)
@@ -55,7 +55,7 @@ class Mirror:
             del synced[name]
         store.ensure_indexed()
         if project:
-            (self.folder / SIDE / "project.json").write_text(json.dumps({"project": project}) + "\n")
+            (self.folder / SIDE / "project.json").write_text(json.dumps({"project": project}) + "\n", encoding="utf-8", newline="\n")
         self._save_synced(synced)
         self._commit("sync from live memory")
 
@@ -75,7 +75,7 @@ class Mirror:
         content or the new and never part of one. An accept that is cut short is finished by the
         next command that works on the mirror.
         """
-        os.rename(self.folder / ".git", self.staging / ".git")
+        disk.rename(self.folder / ".git", self.staging / ".git")
         self._finish_accept()
         self._commit(message)
 
@@ -85,8 +85,8 @@ class Mirror:
             if self.folder.exists():
                 if self._retired.exists():
                     shutil.rmtree(self._retired)
-                os.rename(self.folder, self._retired)
-            os.rename(self.staging, self.folder)
+                disk.rename(self.folder, self._retired)
+            disk.rename(self.staging, self.folder)
         if self._retired.exists():
             shutil.rmtree(self._retired)
 
@@ -119,11 +119,11 @@ class Mirror:
 
     def _synced(self) -> dict[str, str]:
         """What each live file held when it was last taken in or written, by content hash."""
-        return json.loads(self._synced_file.read_text()) if self._synced_file.exists() else {}
+        return json.loads(self._synced_file.read_text(encoding="utf-8")) if self._synced_file.exists() else {}
 
     def _save_synced(self, synced: dict[str, str]) -> None:
         self._synced_file.parent.mkdir(exist_ok=True)
-        self._synced_file.write_text(json.dumps(synced, indent=2, sort_keys=True) + "\n")
+        self._synced_file.write_text(json.dumps(synced, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
 
     def _commit(self, message: str) -> None:
         self._git("add", "-A")
@@ -136,10 +136,12 @@ class Mirror:
             )  # fmt: skip
 
     def _git(self, *args: str) -> str:
+        # Git for Windows keeps to paths of 260 characters unless told otherwise, and the copy's
+        # folder carries the project's whole path in its name. The files are recorded with the
+        # line ends they have, whatever the person's own git would make of them.
+        command = ["git", "-C", str(self.folder), "-c", "core.longpaths=true", "-c", "core.autocrlf=false", *args]
         try:
-            done = subprocess.run(
-                ["git", "-C", str(self.folder), *args], check=True, capture_output=True, text=True
-            )
+            done = subprocess.run(command, check=True, capture_output=True, text=True, encoding="utf-8")
         except (OSError, subprocess.CalledProcessError) as e:
             detail = getattr(e, "stderr", "") or str(e)
             raise RuntimeError(f"git {args[0]} failed in {self.folder}: {detail.strip()}") from e

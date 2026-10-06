@@ -37,10 +37,10 @@ def live(tmp_path):
     folder = tmp_path / "live"
     folder.mkdir()
     for slot, statement in [("deploy-target", "Deploys go to staging first."), ("ci-runner", "CI is self-hosted.")]:
-        (folder / f"{slot}.md").write_text(MEMORY.format(slot=slot, statement=statement))
+        (folder / f"{slot}.md").write_text(MEMORY.format(slot=slot, statement=statement), encoding="utf-8", newline="\n")
     (folder / "MEMORY.md").write_text(
         "- [Deploy target](deploy-target.md) — staging first\n- [CI runner](ci-runner.md) — self-hosted\n"
-    )
+    , encoding="utf-8", newline="\n")
     return folder
 
 
@@ -63,20 +63,20 @@ def test_memory_changed_only_through_recorded_operations_may_go_live(live, stage
 
 def test_an_entry_that_vanished_blocks_the_merge(live, staged):
     (staged / "ci-runner.md").unlink()
-    (staged / "MEMORY.md").write_text("- [Deploy target](deploy-target.md) — staging first\n")
+    (staged / "MEMORY.md").write_text("- [Deploy target](deploy-target.md) — staging first\n", encoding="utf-8", newline="\n")
 
     assert check(live, staged) == ["1 entry disappeared without a record: ci-runner"]
 
 
 def test_a_memory_file_reworded_outside_any_operation_blocks_the_merge(live, staged):
-    (staged / "ci-runner.md").write_text(MEMORY.format(slot="ci-runner", statement="CI is mostly self-hosted."))
+    (staged / "ci-runner.md").write_text(MEMORY.format(slot="ci-runner", statement="CI is mostly self-hosted."), encoding="utf-8", newline="\n")
 
     assert check(live, staged) == ["ci-runner.md changed without a recorded operation"]
 
 
 def test_an_index_claude_code_would_cut_off_or_that_points_nowhere_blocks_the_merge(live, staged):
     index = staged / "MEMORY.md"
-    index.write_text(index.read_text() + "- [Gone](gone.md) — nothing here\n" + "- filler\n" * 200)
+    index.write_text(index.read_text(encoding="utf-8") + "- [Gone](gone.md) — nothing here\n" + "- filler\n" * 200, encoding="utf-8", newline="\n")
 
     assert check(live, staged) == [
         "MEMORY.md has 203 lines; Claude Code loads the first 200",
@@ -97,7 +97,7 @@ def test_an_index_that_stops_leading_to_the_right_memory_blocks_the_merge(live, 
     MemoryStore(live).apply([Add(asked("package-manager", "Use pnpm for JS projects.", "Which package manager do we use?"))])
     staged = shutil.copytree(live, tmp_path / "staged")
     index = staged / "MEMORY.md"
-    index.write_text(index.read_text().replace("Use pnpm for JS projects.", "tooling"))
+    index.write_text(index.read_text(encoding="utf-8").replace("Use pnpm for JS projects.", "tooling"), encoding="utf-8", newline="\n")
 
     assert check(live, staged, judge=picks_by_keyword) == [
         "the index leads to the right memory for 0 of 1 questions, down from 1"
@@ -111,7 +111,7 @@ def test_a_question_written_in_the_change_itself_still_tests_an_entry_that_was_a
     reviewed.set_probe("package-manager", "Which package manager do we use?")
     reviewed.apply([Add(asked("formatter", "Format with ruff.", "Which formatter do we use?"))])
     index = staged / "MEMORY.md"
-    index.write_text(index.read_text().replace("Use pnpm for JS projects.", "tooling"))
+    index.write_text(index.read_text(encoding="utf-8").replace("Use pnpm for JS projects.", "tooling"), encoding="utf-8", newline="\n")
     asked_about = []
 
     def judge(index, questions):

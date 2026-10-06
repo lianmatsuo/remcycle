@@ -43,9 +43,9 @@ def review(store: MemoryStore, runner: Runner, *, budget: int = _BUDGET, per_pas
     """Review every entry in use that has not been reviewed as it now reads."""
     folder = store.folder
     seen_file = folder / SIDE / "reviewed.json"
-    seen: dict[str, str] = json.loads(seen_file.read_text()) if seen_file.exists() else {}
+    seen: dict[str, str] = json.loads(seen_file.read_text(encoding="utf-8")) if seen_file.exists() else {}
     texts = {
-        slot: (folder / f"{slot}.md").read_text()
+        slot: (folder / f"{slot}.md").read_text(encoding="utf-8")
         for slot, entry in store.entries().items()
         if entry.status == Status.ACTIVE
     }
@@ -89,7 +89,7 @@ def review(store: MemoryStore, runner: Runner, *, budget: int = _BUDGET, per_pas
         report.reviewed += len(batch)
         seen.update({slot: _digest(texts[slot]) for slot in batch})
         seen_file.parent.mkdir(exist_ok=True)
-        seen_file.write_text(json.dumps(seen, indent=2, sort_keys=True) + "\n")
+        seen_file.write_text(json.dumps(seen, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
     return report
 
 

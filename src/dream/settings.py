@@ -1,11 +1,12 @@
 """Where remcycle finds Claude Code's transcripts and keeps its own files."""
 
-import os
 import re
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+
+from dream import disk
 
 APP = "remcycle"
 HISTORIES = ("new", "week", "all")
@@ -53,7 +54,7 @@ def put_setting(env: Mapping[str, str], home: Path, name: str, value: str | None
     The new file is checked before it replaces the old one, so a value the settings would refuse is never written.
     """
     file = settings_file(env, home)
-    lines = file.read_text().splitlines(keepends=True) if file.exists() else []
+    lines = file.read_text(encoding="utf-8").splitlines(keepends=True) if file.exists() else []
     own = re.compile(rf"^\s*{re.escape(name)}\s*=")
     kept = [line for line in lines if not own.match(line)]
     if kept and not kept[-1].endswith("\n"):
@@ -73,9 +74,7 @@ def put_setting(env: Mapping[str, str], home: Path, name: str, value: str | None
     if chosen.get(name) != (None if value is None else tomllib.loads(f"v = {value}")["v"]):
         raise ValueError(f"{file}: {name} could not be set; change it there by hand")
     file.parent.mkdir(parents=True, exist_ok=True)
-    written = file.with_name(f"{file.name}.{os.getpid()}.new")
-    written.write_text(text)
-    written.replace(file)
+    disk.put(file, text)
 
 
 def _settings(chosen: dict, file: Path, env: Mapping[str, str], home: Path) -> Settings:
@@ -98,7 +97,7 @@ def _settings(chosen: dict, file: Path, env: Mapping[str, str], home: Path) -> S
     return Settings(
         transcripts=_folder(env, "CLAUDE_CONFIG_DIR", home / ".claude") / "projects",
         archive=data / "archive.db",
-        exclude=tuple(str(home / entry[2:]) if entry.startswith("~/") else entry for entry in exclude),
+        exclude=tuple(str(home / entry[2:]) if entry.startswith(("~/", "~\\")) else entry for entry in exclude),
         memory=data / "memory",
         reports=data / "reports",
         model=model,
@@ -113,7 +112,7 @@ def _read(file: Path) -> dict:
     if not file.exists():
         return {}
     try:
-        return tomllib.loads(file.read_text())
+        return tomllib.loads(file.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as e:
         raise ValueError(f"{file} is not valid TOML: {e}") from e
 

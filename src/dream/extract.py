@@ -8,6 +8,7 @@ it cites, and it carries a person's authority only if a person typed that passag
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -419,8 +420,12 @@ class ClaudeCode:
         self._timeout = timeout
 
     def __call__(self, prompt: str) -> Reply:
+        # Found by its full path first: on Windows `claude` can be a `.cmd` file, which is only started by its whole name.
+        claude = shutil.which("claude")
+        if claude is None:
+            raise ExtractionError("could not run Claude Code: there is no claude command on the path")
         command = [
-            "claude", "-p",
+            claude, "-p",
             "--output-format", "json",
             "--json-schema", json.dumps(self._schema),
             "--model", self._model,
@@ -443,6 +448,7 @@ class ClaudeCode:
                 input=prompt,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=self._timeout,
                 cwd=tempfile.gettempdir(),
                 env=plain,

@@ -42,6 +42,8 @@ git -C /the/folder/they/named rev-parse --show-toplevel
 
 Where that fails because the folder is not in a repository, the entry is what `pwd -P` prints from inside it. A worktree belongs to the repository it was made from, so enter that repository.
 
+On Windows an entry starts with the drive, as git prints it: `C:/Users/you/work`. A path that the shell prints as `/c/Users/you/work` matches nothing until it is written that way.
+
 Add the entries to `exclude` in `~/.config/remcycle/config.toml`. Create the file if it is missing, and keep everything else it holds:
 
 ```toml
@@ -107,7 +109,7 @@ A cap on how many sessions one run reads, for a person with a long history, is `
 
 ## 7. A fixed time instead: only if asked
 
-If the person would rather the dream ran at a set time, such as overnight, [schedule.md](schedule.md) has a task for the Claude desktop app and a cron line. Set up the one they choose, with this machine's paths in it, and run `dream daily off` so the two do not both run.
+If the person would rather the dream ran at a set time, such as overnight, [schedule.md](schedule.md) has a task for the Claude desktop app and, for macOS and Linux, a cron line. Set up the one they choose, with this machine's paths in it, and run `dream daily off` so the two do not both run.
 
 - **A scheduled task in the Claude desktop app.** Create it with your scheduled-task tool if you have one, using the prompt schedule.md gives. Otherwise write the file schedule.md shows and tell the person where in the app to set its time. Done when the person confirms the task is listed with the time they chose.
 - **A cron line.** Add it after the person's existing cron lines, unless `crontab -l` already shows a `dream run` line. Done when `crontab -l` shows it once. Its output lands in `~/.local/share/remcycle/dream.log`, and `Not logged in` there means cron could not use Claude Code's sign-in, in which case the daily dream or the scheduled task is the way to go.

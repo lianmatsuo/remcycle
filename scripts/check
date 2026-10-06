@@ -23,7 +23,8 @@ step() {
 
 check_python() {
   step "python lint" uv run --locked ruff check
-  step "python tests" uv run --locked pytest -q
+  # With this set, text read or written without naming its encoding fails the tests on every system.
+  step "python tests" env PYTHONWARNDEFAULTENCODING=1 uv run --locked pytest -q
 }
 
 check_mod() {
