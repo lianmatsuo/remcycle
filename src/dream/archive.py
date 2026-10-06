@@ -188,6 +188,8 @@ class Archive:
         self._db = sqlite3.connect(path)
         path.chmod(0o600)
         self._db.executescript(_SCHEMA)
+        # Search asks whether a project is within another by the rule that decides what is excluded.
+        self._db.create_function("within", 2, lambda project, parent: _within(project, (parent,)), deterministic=True)
 
     def __enter__(self) -> Self:
         return self
@@ -353,9 +355,7 @@ class Archive:
             JOIN turns t ON t.id = turns_fts.rowid
             JOIN sessions s ON s.session_id = t.session_id
             WHERE turns_fts MATCH :match
-              AND (:project IS NULL OR s.project = :project
-                   OR (substr(s.project, 1, length(:project)) = :project
-                       AND substr(s.project, length(:project) + 1, 1) IN ('/', '\\')))
+              AND (:project IS NULL OR within(s.project, :project))
               AND (:since IS NULL OR substr(t.timestamp, 1, 10) >= :since)
               AND (:until IS NULL OR substr(t.timestamp, 1, 10) <= :until)
               AND (:tools OR t.kind != 'tool')

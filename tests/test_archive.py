@@ -260,9 +260,11 @@ def test_on_windows_a_folder_is_one_project_however_its_path_is_written(root, ar
     client = tmp_path / "work" / "private-client"
     as_typed = str(client)[0].lower() + str(client)[1:].replace("\\", "/")
     put_session(root, "s-private", [human("rotate the vault unseal keys", 0)], cwd=str(client / "api"))
+    put_session(root, "s-shop", [human("rotate the vault unseal keys in the demo", 0)], cwd=str(tmp_path / "work" / "shop"))
 
     assert project_of(as_typed) == str(client)
     assert archive.ingest(root, exclude=[as_typed.upper()]).excluded == 1
+    assert found(archive.search("vault unseal", project=str(tmp_path / "work").upper().replace("\\", "/"))) == [("s-shop", 0)]
 
 
 def test_sessions_started_without_a_folder_share_one_group(root, archive):
