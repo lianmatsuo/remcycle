@@ -21,11 +21,32 @@ Without it the mod loads and does nothing: a conversation starts unchanged, and 
 
 It runs in Claude Code only, and needs 2.1.287 or later in the terminal or 2.1.286 in the desktop app. On claude.ai and in Cowork it does nothing.
 
-## What it reaches
+## Exactly what it runs, reads and sends
 
-A mod runs with your permissions. This one starts one program, `dream`, and makes no network requests. `claude plugin validate` on this folder lists every event it handles and every call it makes.
+**The one program it runs.** The mod starts one program, `dream`, remcycle's own command line, which you install separately as above, and nothing else. It always runs `dream` followed by one of these:
 
-The `dream` command keeps everything on your machine. What leaves is what the daily dream sends to the model through your own Claude Code, which the mod starts once a day and `dream daily off` stops: the prose of your sessions and, for a project with unfinished work, the messages of its recent commits and the titles and descriptions of its merged pull requests.
+- `context`, when a conversation starts, for what to hand the session.
+- `daily`, when a session starts, which starts the day's dream in the background if one is due; and `daily on`, `daily off` or `daily history ...` from the panel's switches.
+- `status`, when the panel is drawn or refreshed, and before `settle_memory` applies a ruling.
+- `search` and `show`, when Claude uses the `recall` tool.
+- `close`, `reopen` and `resolve`, when Claude uses `close_thread` or `settle_memory`, or you press one of the panel's buttons.
+- `note-read`, after Claude reads one of your memory files, to count the read.
+- `ingest`, when a session ends.
+
+**What it reads.** The mod does not read or keep your messages. It sees the session's id and folder, and the path of each file Claude reads, to notice memory files. The `dream` command reads Claude Code's session transcripts and memory folders on your disk: that is how it files sessions into its archive and how the daily dream learns from them.
+
+**What leaves your machine, and where.** The mod makes no network requests. The `dream` command sends one thing out: when the dream runs, once a day unless you turn it off, it sends the prose of the sessions it reads to the model your Claude Code uses, through your own Claude Code (`claude -p`, signed in as you). For a project with unfinished work it also sends the messages of the repository's recent commits and the titles and descriptions of its merged pull requests, which it reads with `git` and, where it is installed and signed in, `gh`. Nothing is sent to remcycle's author or anyone else.
+
+**What each hook does.**
+
+- **When a session starts**, it registers the three tools and `/remcycle`, and runs `dream daily`.
+- **When a conversation starts** (`prompt.context`), it adds up to three blocks to what Claude is given: what you have said applies to all your work, what was learned about this project, and what earlier sessions left unfinished. It removes and changes nothing else.
+- **For its own three tools** (`tool.call` on `recall`, `close_thread` and `settle_memory`), it answers each one itself by running `dream`. It never answers any other tool in that tool's place.
+- **When Claude reads a file** (`tool.call` on `Read`), it lets the read go ahead unchanged. If the file is one of your memory files, it counts the read, and adds a line when that memory names a file that no longer exists.
+- **When a session ends**, it runs `dream ingest`.
+- **For the panel** (`command.run` on `/remcycle`, `ui.render` and `ui.focus`), it opens and draws remcycle's own panel, and in the desktop app counts a click on one of the panel's buttons as a press. These touch nothing outside the panel.
+
+`claude plugin validate` on this folder lists every event the mod handles and every call it makes.
 
 ## Privacy and support
 
