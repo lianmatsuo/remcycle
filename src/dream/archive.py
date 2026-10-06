@@ -105,7 +105,9 @@ def _spelled(folder: str) -> str:
     """A folder's path spelled one way. Windows takes `c:/work` and `C:\\work` for the same folder."""
     if not _WINDOWS.match(folder):
         return folder
-    return str(PureWindowsPath(folder[0].upper() + folder[1:]))
+    spelled = str(PureWindowsPath(folder[0].upper() + folder[1:]))
+    # A share's own top folder comes back with a closing slash, which is kept only where one was written.
+    return spelled if folder.endswith(("/", "\\")) else spelled.rstrip("\\")
 
 
 def _within(project: str | None, parents: Iterable[str]) -> bool:

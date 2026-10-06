@@ -276,6 +276,7 @@ def test_a_project_on_a_network_share_is_one_folder_however_its_path_is_written(
     assert archive.ingest(root, exclude=["//NAS/share/private-client"]).excluded == 1
     assert found(archive.search("vault unseal", project="//nas/SHARE")) == [("s-shop", 0)]
     assert project_of("//nas/share/shop/.claude/worktrees/fix") == "\\\\nas\\share\\shop"
+    assert project_of("//nas/share/.claude/worktrees/fix") == "\\\\nas\\share"
 
 
 def test_sessions_started_without_a_folder_share_one_group(root, archive):
