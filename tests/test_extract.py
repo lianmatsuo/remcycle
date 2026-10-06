@@ -124,6 +124,14 @@ def test_threads_left_open_or_finished_come_back_with_their_state():
     assert [(t.slot, t.is_open) for t in extraction.threads] == [("ci-cache", True), ("lockfile-cleanup", False)]
 
 
+@pytest.mark.parametrize("name", ["memory", "nul", "com1"])
+def test_a_claim_named_for_a_file_it_could_not_have_is_thrown_out(name):
+    extraction = extract(SESSION, TURNS, known={}, runner=answering(raw_claim(slot=name), raw_claim()))
+
+    assert [claim.slot for claim in extraction.claims] == ["package-manager"]
+    assert [(r.slot, r.reason) for r in extraction.rejected] == [(name, "its name cannot be the name of a memory file")]
+
+
 def test_a_model_that_cannot_be_asked_is_an_error_for_that_session():
     def unreachable(prompt):
         raise ExtractionError("could not run Claude Code: not signed in")

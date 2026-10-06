@@ -91,6 +91,9 @@ def from_json(data: dict) -> Extraction:
 
 
 _SLOT = re.compile(r"[a-z0-9][a-z0-9_-]{1,60}")
+# A memory is kept in a file named after its slot. `memory.md` is the index itself on a disk that
+# ignores case, as macOS and Windows disks do unless set up otherwise, and the rest are devices on Windows, not files.
+_NOT_A_FILE = re.compile(r"memory|con|prn|aux|nul|com[0-9]|lpt[0-9]")
 _SHORTEST_QUOTE = 10
 _TURN_LIMIT = 6_000
 _BUDGET = 300_000
@@ -162,6 +165,8 @@ def _checked(session_id: str, raw: dict, by_seq: Mapping[int, Turn]) -> Claim | 
         return rejected(f"it is not in the agreed shape ({e})")
     if not _SLOT.fullmatch(slot) or not statement:
         return rejected("it has no usable slot or statement")
+    if _NOT_A_FILE.fullmatch(slot):
+        return rejected("its name cannot be the name of a memory file")
     cited = [by_seq[seq] for seq in range(first, last + 1) if seq in by_seq]
     if not cited:
         return rejected(f"turns {first} to {last} are not in the session")
