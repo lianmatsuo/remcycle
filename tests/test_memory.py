@@ -294,11 +294,15 @@ def test_a_look_up_is_counted_beside_the_folder_and_changes_nothing_inside_it(fo
 def test_an_index_over_its_budget_sheds_the_oldest_unread_legacy_lines_and_keeps_every_file(folder):
     for n, modified in enumerate(["2026-05-01", "2026-09-01", "2026-07-01"]):
         (folder / f"note-{n}.md").write_text(
-            f'---\nname: note-{n}\ndescription: "Note {n}."\nmetadata:\n  type: project\n  modified: {modified}T00:00:00Z\n---\n\nNote {n}.\n'
-        , encoding="utf-8", newline="\n")
+            f'---\nname: note-{n}\ndescription: "Note {n}."\nmetadata:\n  type: project\n  modified: {modified}T00:00:00Z\n---\n\nNote {n}.\n',
+            encoding="utf-8",
+            newline="\n",
+        )
     (folder / "MEMORY.md").write_text(
-        "- [Note 0](note-0.md) — n0\n- [Note 1](note-1.md) — n1\n- [Note 2](note-2.md) — n2\n"
-    , encoding="utf-8", newline="\n")
+        "- [Note 0](note-0.md) — n0\n- [Note 1](note-1.md) — n1\n- [Note 2](note-2.md) — n2\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     store = MemoryStore(folder)
     store.apply([Add(claim("package-manager", "Use pnpm for JS projects."))])
     store.note_read("note-0", folder, "2026-10-01T09:00:00Z")

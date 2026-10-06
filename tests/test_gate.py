@@ -39,8 +39,10 @@ def live(tmp_path):
     for slot, statement in [("deploy-target", "Deploys go to staging first."), ("ci-runner", "CI is self-hosted.")]:
         (folder / f"{slot}.md").write_text(MEMORY.format(slot=slot, statement=statement), encoding="utf-8", newline="\n")
     (folder / "MEMORY.md").write_text(
-        "- [Deploy target](deploy-target.md) — staging first\n- [CI runner](ci-runner.md) — self-hosted\n"
-    , encoding="utf-8", newline="\n")
+        "- [Deploy target](deploy-target.md) — staging first\n- [CI runner](ci-runner.md) — self-hosted\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     return folder
 
 

@@ -1,7 +1,10 @@
 import json
 import os
+import shutil
+import subprocess
 import sys
 import time
+from pathlib import Path
 
 import pytest
 
@@ -170,7 +173,7 @@ def stand_in_for_claude(tmp_path, monkeypatch, does):
     program = tmp_path / "claude.py"
     program.write_text(does, encoding="utf-8", newline="\n")
     if sys.platform == "win32":
-        # Windows starts a command of this kind from a batch file, as it does a Claude Code installed with npm.
+        # A batch file starts it, the way npm has Windows start a command it installs.
         (tmp_path / "claude.cmd").write_text(f'@"{sys.executable}" "{program}" %*\n', encoding="utf-8", newline="\r\n")
     else:
         launcher = tmp_path / "claude"
@@ -230,6 +233,25 @@ def test_on_windows_a_program_is_never_taken_from_the_folder_the_command_runs_in
 
     with pytest.raises(ExtractionError, match="no claude command"):
         ClaudeCode()("what did this session establish?")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows looks for a program in the current folder before the path")
+def test_on_windows_git_is_not_taken_from_the_folder_the_command_runs_in(tmp_path, monkeypatch, capsys):
+    def git_says():
+        asked = subprocess.run(["git", "--version"], capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
+        return asked.stdout
+
+    monkeypatch.delenv("NoDefaultCurrentDirectoryInExePath", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no-settings"))
+    project = tmp_path / "a-project-someone-sent"
+    project.mkdir()
+    # Any program will do for the one planted: this one comes with Windows.
+    shutil.copyfile(Path(os.environ["SystemRoot"]) / "System32" / "whoami.exe", project / "git.exe")
+    monkeypatch.chdir(project)
+
+    assert not git_says().startswith("git version")
+    assert dream.cli.main(["queue", "--db", str(tmp_path / "archive.db"), "--memory", str(tmp_path / "memory")]) == 0
+    assert git_says().startswith("git version")
 
 
 def test_a_model_call_that_does_not_answer_is_given_up_on_at_its_time_limit(tmp_path, monkeypatch):
