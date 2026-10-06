@@ -16,7 +16,7 @@ claude plugin marketplace add lianmatsuo/remcycle
 claude plugin install remcycle@remcycle
 ```
 
-The first line puts the `dream` command on your `PATH`. The other two install the mod as a Claude Code plugin, and it loads in the next session you start. To update later, run `uv tool upgrade remcycle` and `claude plugin update remcycle@remcycle`. The first follows the repository. The second brings a new copy of the mod only when a release has raised its version, and the command stays compatible with the last released mod in between.
+The first line puts the `dream` command on your `PATH`. The other two install the mod as a Claude Code plugin, and it loads in the next session you start. To update later, run `uv tool upgrade remcycle` and `claude plugin update remcycle@remcycle`. The first follows the repository. The second brings a new copy of the mod only when a release has raised its version, and the command stays compatible with the last released mod in between. `dream --version` says which version of the command is installed.
 
 From a clone, which is what the setup guide does and what you want for working on remcycle:
 

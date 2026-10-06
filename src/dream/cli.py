@@ -9,6 +9,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, date, datetime
+from importlib.metadata import version
 from pathlib import Path
 
 try:
@@ -472,6 +473,7 @@ def _day(value: str) -> str:
 
 def _parser(settings: Settings) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dream", description="Archive of Claude Code sessions.")
+    parser.add_argument("--version", action="version", version=f"dream {version('remcycle')}")
     parser.set_defaults(
         exclude=settings.exclude,
         effort=settings.effort,
