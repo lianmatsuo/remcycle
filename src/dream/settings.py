@@ -56,15 +56,22 @@ def put_setting(env: Mapping[str, str], home: Path, name: str, value: str | None
     lines = file.read_text().splitlines(keepends=True) if file.exists() else []
     own = re.compile(rf"^\s*{re.escape(name)}\s*=")
     kept = [line for line in lines if not own.match(line)]
+    if kept and not kept[-1].endswith("\n"):
+        kept[-1] += "\n"
     if value is not None:
-        if kept and not kept[-1].endswith("\n"):
-            kept[-1] += "\n"
-        kept.append(f"{name} = {value}\n")
+        # A top-level setting has to come before the first table, or TOML reads it as part of that table.
+        at = next((n for n, line in enumerate(kept) if line.lstrip().startswith("[")), len(kept))
+        while at > 0 and kept[at - 1].strip() == "":
+            at -= 1
+        kept.insert(at, f"{name} = {value}\n")
     text = "".join(kept)
     try:
-        _settings(tomllib.loads(text), file, env, home)
+        chosen = tomllib.loads(text)
     except tomllib.TOMLDecodeError as e:
-        raise ValueError(f"{file} would not be valid TOML: {e}") from e
+        raise ValueError(f"{file} cannot take this change, as it would not be valid TOML: {e}") from e
+    _settings(chosen, file, env, home)
+    if chosen.get(name) != (None if value is None else tomllib.loads(f"v = {value}")["v"]):
+        raise ValueError(f"{file}: {name} could not be set; change it there by hand")
     file.parent.mkdir(parents=True, exist_ok=True)
     written = file.with_name(f"{file.name}.{os.getpid()}.new")
     written.write_text(text)

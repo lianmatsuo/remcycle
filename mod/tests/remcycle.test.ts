@@ -933,3 +933,20 @@ test('once chosen, the pane says how the daily dream stands, why it last went wr
     'warning',
   )
 })
+
+test('a thread that cannot be closed while a dream is writing memory says so, and to try again', async ($, on) => {
+  on('process.run', async () => ({
+    value: {
+      exitCode: 1,
+      stdout: '',
+      stderr: 'dream: another dream command is changing memory; try again when it has finished\n',
+      isStdoutTruncated: false,
+      isStderrTruncated: false,
+    },
+  }))
+  on('session.id', async () => ({ value: '7f3a9c2e-1b4d-4e6f-8a90-123456789abc' }))
+
+  const answer = await $.tool.call({ tool: 'mcp__remcycle__close_thread', slot: 'ci-cache', reason: 'Done.' })
+
+  expect(answer.result).toBe('Not closed yet: a dream is writing memory right now. Try again in a minute.')
+})

@@ -76,6 +76,61 @@ class DreamReport:
     cost_usd: float = 0.0
 
 
+@dataclass
+class ReadAhead:
+    failures: list[tuple[str, str]] = field(default_factory=list)
+    """Sessions the model could not be asked about, with the reason. They stay unread."""
+    cost_usd: float = 0.0
+
+
+def read_ahead(
+    archive: Archive,
+    *,
+    memory_root: Path,
+    runner: Runner,
+    limit: int | None = None,
+    since: str | None = None,
+    now: str | None = None,
+    progress: Callable[[str], None] = lambda line: None,
+) -> ReadAhead:
+    """Ask the model about each due session that has no digest yet, and keep what it made of each.
+
+    This is the slow part of a dream, and it only reads memory, so it runs while other commands
+    may change it. Each session is read against memory as it stood before the run, not with
+    what an earlier session in the same run added; reconciling settles the difference.
+    """
+    now = now or datetime.now(UTC).isoformat()
+    ahead = ReadAhead()
+    everywhere = memory_root / key(GLOBAL)
+    for session in archive.awaiting_dream(since)[:limit]:
+        if archive.digest(session.session_id):
+            continue
+        progress(f"reading {session.session_id[:8]} {session.title or ''}".rstrip())
+        try:
+            store = MemoryStore(memory_root / key(session.project))
+            known = {**(_active(MemoryStore(everywhere)) if everywhere.exists() else {}), **_active(store)}
+            threads = {**store.threads(now), **_closed_by(store, session.session_id, now)}
+            topics = store.topics()
+        except (OSError, ValueError):
+            # A copy being replaced at this moment, or one that does not exist yet: read against nothing.
+            known, threads, topics = {}, {}, []
+        try:
+            extraction = extract(
+                session.session_id,
+                archive.show(session.session_id),
+                known=known,
+                open_threads=threads,
+                topics=topics,
+                runner=runner,
+            )
+        except ExtractionError as e:
+            ahead.failures.append((session.session_id, str(e)))
+            continue
+        archive.keep_digest(session.session_id, to_json(extraction))
+        ahead.cost_usd += extraction.cost_usd
+    return ahead
+
+
 def dream(
     archive: Archive,
     *,
@@ -85,6 +140,7 @@ def dream(
     publish: bool = False,
     limit: int | None = None,
     since: str | None = None,
+    ask: bool = True,
     now: str | None = None,
     judge: Judge | None = None,
     witness: Witness | None = None,
@@ -92,7 +148,8 @@ def dream(
 ) -> DreamReport:
     """Read up to `limit` unread sessions and bring each project's memory up to date.
 
-    With `since`, only sessions that ended at or after that moment are read.
+    With `since`, only sessions that ended at or after that moment are read. With `ask` false the
+    model is not asked about any session: one with no digest kept by `read_ahead` stays unread.
 
     With a `witness`, each project's repository is also asked whether its own changes
     finished a thread that no session has reported finished.
@@ -118,6 +175,8 @@ def dream(
         for session in sessions:
             progress(f"reading {session.session_id[:8]} {session.title or ''}".rstrip())
             kept = archive.digest(session.session_id)
+            if not kept and not ask:
+                continue
             try:
                 extraction = from_json(kept) if kept else extract(
                     session.session_id,

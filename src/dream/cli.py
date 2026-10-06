@@ -18,7 +18,7 @@ except ImportError:  # Windows has no fcntl, and there commands do not take turn
 
 from dream import daily, outside, review
 from dream.archive import NO_PROJECT, Archive, Recap, project_of
-from dream.dreaming import GLOBAL, DreamReport, dream, key, publish_project, render, review_project
+from dream.dreaming import GLOBAL, DreamReport, dream, key, publish_project, read_ahead, render, review_project
 from dream.extract import ClaudeCode
 from dream.gate import JUDGE_SCHEMA, JUDGE_SYSTEM, judge_with
 from dream.memory import MemoryStore
@@ -168,26 +168,44 @@ def _run(archive: Archive, args: argparse.Namespace) -> int:
 
 
 def _dreamt(archive: Archive, args: argparse.Namespace) -> DreamReport:
-    """One dream run: the archive brought up to date, the dream, and its report printed and saved."""
+    """One dream run: the archive brought up to date, the dream, and its report printed and saved.
+
+    The model reads the sessions first, which takes minutes, while other commands may still change
+    memory. Only the dream after it, which works from what was read, holds the turn at changing memory.
+    """
     _ingest(archive, args)
-    report = dream(
-        archive,
-        memory_root=args.memory,
-        live_root=args.root,
-        runner=ClaudeCode(args.model, effort=args.effort),
-        judge=judge_with(ClaudeCode(args.model, schema=JUDGE_SCHEMA, system=JUDGE_SYSTEM, effort=args.effort)),
-        witness=witness_with(ClaudeCode(args.model, schema=outside.SCHEMA, system=outside.SYSTEM, effort=args.effort)),
-        publish=args.publish,
-        limit=args.limit,
-        since=args.since,
-        progress=lambda line: print(line, flush=True),
-    )
+    runner = ClaudeCode(args.model, effort=args.effort)
+    ahead = read_ahead(archive, memory_root=args.memory, runner=runner, limit=args.limit, since=args.since, progress=_progress)
+    with _turn(args.memory):
+        report = _dream_from_what_was_read(archive, args, runner)
+    report.failures[:0] = ahead.failures
+    report.cost_usd += ahead.cost_usd
     written = args.reports / f"{datetime.now().astimezone():%Y-%m-%d-%H%M%S}.md"
     written.parent.mkdir(parents=True, exist_ok=True)
     written.write_text(render(report))
     print(render(report))
     print(f"report saved to {written}")
     return report
+
+
+def _progress(line: str) -> None:
+    print(line, flush=True)
+
+
+def _dream_from_what_was_read(archive: Archive, args: argparse.Namespace, runner: ClaudeCode) -> DreamReport:
+    return dream(
+        archive,
+        memory_root=args.memory,
+        live_root=args.root,
+        runner=runner,
+        judge=judge_with(ClaudeCode(args.model, schema=JUDGE_SCHEMA, system=JUDGE_SYSTEM, effort=args.effort)),
+        witness=witness_with(ClaudeCode(args.model, schema=outside.SCHEMA, system=outside.SYSTEM, effort=args.effort)),
+        publish=args.publish,
+        limit=args.limit,
+        since=args.since,
+        ask=False,
+        progress=_progress,
+    )
 
 
 def _review(archive: Archive, args: argparse.Namespace) -> int:
@@ -269,6 +287,8 @@ def _daily_status(archive: Archive, args: argparse.Namespace) -> dict:
     """How the daily dream stands, and how many sessions each history would have it read."""
     state = daily.load(args.state)
     began = state.began or _now()
+    # A run killed before it could record its end, by a restart or otherwise, would read as running forever.
+    died = state.finished is None and state.failed is None and state.pid is not None and not daily.is_alive(state.pid)
     return {
         "on": args.daily_on,
         "history": args.daily_history,
@@ -276,7 +296,7 @@ def _daily_status(archive: Archive, args: argparse.Namespace) -> dict:
         "waiting": {history: len(archive.awaiting_dream(daily.cutoff(history, began))) for history in HISTORIES},
         "started": state.started,
         "finished": state.finished,
-        "failed": state.failed,
+        "failed": "it stopped before it finished" if died else state.failed,
     }
 
 
@@ -341,6 +361,9 @@ def _daily(archive: Archive, args: argparse.Namespace) -> int:
     with _serialised(args.state):
         state = daily.begin(daily.load(args.state), _now())
         daily.save(args.state, state)
+        if state.finished is None and state.failed is None and daily.is_alive(state.pid):
+            print(f"the daily dream is still running: it started at {state.started}")
+            return 0
         if not daily.is_due(state, _now()):
             print(f"the daily dream is not due: the last one started at {state.started}")
             return 0
@@ -348,8 +371,10 @@ def _daily(archive: Archive, args: argparse.Namespace) -> int:
         if not waiting:
             print("nothing new for the daily dream to read")
             return 0
-        daily.save(args.state, replace(state, started=_now(), finished=None, failed=None, log=str(args.log)))
-    daily.start([sys.executable, "-m", "dream.cli", "daily", "--background", "--db", str(args.db), "--root", str(args.root)], args.log)
+        # -P keeps the session's folder off the import path, so a project's own `dream` package is never run.
+        background = [sys.executable, "-P", "-m", "dream.cli", "daily", "--background", "--db", str(args.db), "--root", str(args.root)]
+        pid = daily.start(background, args.log)
+        daily.save(args.state, replace(state, started=_now(), finished=None, failed=None, log=str(args.log), pid=pid))
     print(f"the daily dream started in the background: {len(waiting)} session{'' if len(waiting) == 1 else 's'} to read")
     return 0
 
@@ -363,8 +388,7 @@ def _daily_run(archive: Archive, args: argparse.Namespace) -> int:
     failed: str | None = "it stopped before it finished"
     code = 1
     try:
-        with _turn(args.memory):
-            report = _dreamt(archive, run)
+        report = _dreamt(archive, run)
         code = 1 if report.failures else 0
         failed = _failed(report.failures)
     except _Busy as e:
@@ -384,6 +408,14 @@ def _failed(failures: list[tuple[str, str]]) -> str | None:
 
 def _daily_change(words: list[str]) -> int:
     """Change how the daily dream runs, in the settings file, where the change can also be made by hand."""
+    try:
+        return _changed(words)
+    except ValueError as e:
+        print(f"dream: {e}", file=sys.stderr)
+        return 2
+
+
+def _changed(words: list[str]) -> int:
     match words:
         case ["on" | "off" as switch]:
             put_setting(os.environ, Path.home(), "daily_dream", "true" if switch == "on" else "false")
@@ -422,7 +454,8 @@ def _serialised(file: Path) -> Iterator[None]:
         yield
 
 
-_CHANGES_MEMORY = (_run, _review, _publish, _resolve, _close, _reopen)
+# A dream run takes its turn itself, and only for the part after the model has read the sessions.
+_CHANGES_MEMORY = (_review, _publish, _resolve, _close, _reopen)
 
 
 def _project(args: argparse.Namespace) -> str:

@@ -281,12 +281,19 @@ function parsed(out: string | null): unknown {
 
 /** Runs remcycle's command line and returns what it printed, or null if it failed or could not be started. */
 async function dream($: EngineInterface, args: string[], timeoutMs = 30_000): Promise<string | null> {
+  return (await tried($, args, timeoutMs)).out
+}
+
+/** Runs remcycle's command line once: what it printed, or null and whether another dream command held memory. */
+async function tried($: EngineInterface, args: string[], timeoutMs = 30_000): Promise<{ out: string | null; isBusy: boolean }> {
   try {
     const ran = await $.process.run(['dream', ...args], { timeoutMs })
 
-    return ran.exitCode === 0 ? ran.stdout : null
+    return ran.exitCode === 0
+      ? { out: ran.stdout, isBusy: false }
+      : { out: null, isBusy: ran.stderr.includes('another dream command is changing memory') }
   } catch {
-    return null
+    return { out: null, isBusy: false }
   }
 }
 
@@ -569,9 +576,15 @@ export const register: Register = on => {
       return { result: 'Not closed: give the thread\'s name as `slot` and what finished it as `reason`.' }
     }
 
-    const out = await dream($, ['close', `--why=${reason}`, `--session=${await $.session.id()}`, '--', slot])
+    const { out, isBusy } = await tried($, ['close', `--why=${reason}`, `--session=${await $.session.id()}`, '--', slot])
 
-    return { result: out ?? `Not closed: no open thread is named ${slot}, or remcycle could not be reached.` }
+    return {
+      result:
+        out ??
+        (isBusy
+          ? 'Not closed yet: a dream is writing memory right now. Try again in a minute.'
+          : `Not closed: no open thread is named ${slot}, or remcycle could not be reached.`),
+    }
   })
 
   on('tool.call', { tool: SETTLE }, async ($, e) => {

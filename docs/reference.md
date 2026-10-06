@@ -111,7 +111,7 @@ uv run dream review
 
 Reads the memories this project already has, which the dream otherwise touches only when a session says something about them. It gives each a topic and a probe question, and puts to you any that look dated, repeat each other or disagree, each backed by words quoted from the memories themselves. It changes and removes nothing. A large folder is reviewed 20 memories at a time; a pass the model fails on is left for the next run and the passes that worked are kept. On the development machine, reviewing 19 memories cost $2.28 at API prices with Sonnet, so try `effort = "low"` or `model = "haiku"` in the settings file before a large folder.
 
-The model step runs through your own Claude Code, headless (`claude -p`), with no tools, no settings, no plugins and no transcript. It uses your plan's usage: on the development machine one long session cost about $0.58 at API prices with Sonnet. Choose the model with `model = "haiku"` in the settings file or `--model`.
+The model step runs through your own Claude Code, headless (`claude -p`), with no tools, no settings, no plugins, no MCP servers, no skills and no transcript. Left in, the descriptions of your MCP servers and skills would ride along on every call: one measured call carried about 183,000 tokens of context with them and about 500 without. It uses your plan's usage: on the development machine one long session cost about $0.58 at API prices with Sonnet. Choose the model with `model = "haiku"` in the settings file or `--model`.
 
 ## Mod
 

@@ -1,5 +1,6 @@
 import fcntl
 import json
+import os
 import sys
 from dataclasses import replace
 
@@ -299,7 +300,7 @@ def test_a_session_starts_the_daily_dream_in_the_background_once_a_day_when_ther
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     started = []
-    monkeypatch.setattr(dream.daily, "start", lambda argv, log: started.append(argv))
+    monkeypatch.setattr(dream.daily, "start", lambda argv, log: started.append(argv) or 999_999)
     clock = {"now": "2026-10-01T08:00:00+00:00"}
     monkeypatch.setattr(dream.cli, "_now", lambda: clock["now"])
     root, db = tmp_path / "projects", str(tmp_path / "archive.db")
@@ -324,7 +325,7 @@ def test_a_session_starts_the_daily_dream_in_the_background_once_a_day_when_ther
 
     session("s-next", "2026-10-01T15:00:00.000Z")
     assert "started in the background" in daily("2026-10-02T10:00:00+00:00")
-    assert started == [[sys.executable, "-m", "dream.cli", "daily", "--background", *scope]] * 2
+    assert started == [[sys.executable, "-P", "-m", "dream.cli", "daily", "--background", *scope]] * 2
 
 
 def test_the_daily_dream_is_changed_in_the_settings_file_and_does_nothing_while_it_is_off(tmp_path, capsys, monkeypatch):
@@ -389,8 +390,8 @@ def test_the_status_says_how_the_daily_dream_stands_and_how_much_each_history_wo
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
     monkeypatch.setattr(dream.cli, "_now", lambda: "2026-10-08T08:00:00+00:00")
     root, db = tmp_path / "projects", str(tmp_path / "archive.db")
-    for session_id, at in (("s-old", "2026-09-01"), ("s-week", "2026-10-03"), ("s-new", "2026-10-07T20")):
-        put_session(root, session_id, [human("use bun here", 0, timestamp=f"{at}T09:00:00.000Z"[:24])], cwd="/work/shop")
+    for session_id, at in (("s-old", "2026-09-01T09"), ("s-week", "2026-10-03T09"), ("s-new", "2026-10-07T20")):
+        put_session(root, session_id, [human("use bun here", 0, timestamp=f"{at}:00:00.000Z")], cwd="/work/shop")
     assert main(["ingest", "--root", str(root), "--db", db]) == 0
     state = tmp_path / "data" / "remcycle" / "daily.json"
     dream.daily.save(state, dream.daily.State(began="2026-10-07T08:00:00+00:00", started="2026-10-07T08:00:00+00:00"))
@@ -408,3 +409,90 @@ def test_the_status_says_how_the_daily_dream_stands_and_how_much_each_history_wo
         "finished": None,
         "failed": None,
     }
+
+
+def test_turning_the_daily_dream_off_works_when_the_settings_file_has_tables(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    file = tmp_path / "config" / "remcycle" / "config.toml"
+    file.parent.mkdir(parents=True)
+    file.write_text('model = "sonnet"\n\n[extra]\nnote = "x"\n')
+    db = ["--db", str(tmp_path / "archive.db")]
+
+    assert main(["daily", "off", *db]) == 0
+    capsys.readouterr()
+
+    assert file.read_text() == 'model = "sonnet"\ndaily_dream = false\n\n[extra]\nnote = "x"\n'
+    assert main(["daily", *db]) == 0
+    assert "the daily dream is off" in capsys.readouterr().out
+
+
+def test_a_settings_file_the_change_cannot_be_made_in_is_reported_not_raised(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    file = tmp_path / "config" / "remcycle" / "config.toml"
+    file.parent.mkdir(parents=True)
+    file.write_text('"daily_dream" = true\n')
+
+    assert main(["daily", "off", "--db", str(tmp_path / "archive.db")]) == 2
+    assert "config.toml" in capsys.readouterr().err
+    assert file.read_text() == '"daily_dream" = true\n'
+
+
+def test_a_daily_dream_that_died_is_reported_and_one_still_running_is_left_alone(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setattr(dream.cli, "_now", lambda: "2026-10-08T08:00:00+00:00")
+    started = []
+    monkeypatch.setattr(dream.daily, "start", lambda argv, log: started.append(argv) or 999_999)
+    root, db = tmp_path / "projects", str(tmp_path / "archive.db")
+    put_session(root, "s-new", [human("use bun here", 0, timestamp="2026-10-07T20:00:00.000Z")], cwd="/work/shop")
+    assert main(["ingest", "--root", str(root), "--db", db]) == 0
+    state = tmp_path / "data" / "remcycle" / "daily.json"
+    yesterday = "2026-10-07T08:00:00+00:00"
+
+    dream.daily.save(state, dream.daily.State(began=yesterday, started=yesterday, pid=os.getpid()))
+    capsys.readouterr()
+    assert main(["daily", "--db", db, "--root", str(root)]) == 0
+    assert "still running" in capsys.readouterr().out
+    assert started == []
+
+    dream.daily.save(state, dream.daily.State(began=yesterday, started=yesterday, pid=999_999))
+    assert main(["status", "--db", db, "--project", str(tmp_path)]) == 0
+    assert json.loads(capsys.readouterr().out)["daily"]["failed"] == "it stopped before it finished"
+
+
+def test_the_model_reads_without_holding_the_turn_at_changing_memory_and_the_dream_after_takes_it(
+    tmp_path, capsys, monkeypatch
+):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    memory = tmp_path / "memory"
+    seen = []
+
+    def turn_is_free():
+        memory.mkdir(parents=True, exist_ok=True)
+        with (memory / ".lock").open("w") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return False
+            fcntl.flock(lock, fcntl.LOCK_UN)
+            return True
+
+    def reading(archive, **options):
+        seen.append(("reading", turn_is_free()))
+        return dream.dreaming.ReadAhead(failures=[("s-1", "the model gave no answer")], cost_usd=0.5)
+
+    def dreaming(archive, **options):
+        seen.append(("dreaming", turn_is_free(), options["ask"]))
+        return DreamReport(sessions=2, cost_usd=0.25)
+
+    monkeypatch.setattr(dream.cli, "read_ahead", reading)
+    monkeypatch.setattr(dream.cli, "dream", dreaming)
+    scope = ["--db", str(tmp_path / "archive.db"), "--root", str(tmp_path / "projects"), "--memory", str(memory)]
+    scope += ["--reports", str(tmp_path / "reports")]
+
+    assert main(["run", *scope]) == 1
+    assert seen == [("reading", True), ("dreaming", False, False)]
+    report = capsys.readouterr().out
+    assert "2 sessions read, $0.75 of model use" in report
+    assert "Could not read s-1: the model gave no answer" in report

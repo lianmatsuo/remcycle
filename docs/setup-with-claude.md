@@ -14,7 +14,7 @@ Run `uv --version` and `claude --version`.
 
 - `uv` does not answer: remcycle is installed with it. Give the person the install line for their system from <https://docs.astral.sh/uv/getting-started/installation/>, and carry on once `uv --version` answers.
 - `claude` does not answer: the dream reads sessions through that command, so steps 5 to 7 need it. Tell the person, do steps 2 to 4, then go to step 8.
-- `claude` answers with a version older than 2.1.287: the mod in step 5 needs that version or later. Tell the person that `claude update` brings it up to date, and run it with their yes. Without it, skip step 6.
+- `claude` answers with a version older than 2.1.287: the mod in step 5 needs that version or later. Tell the person that `claude update` brings it up to date, and run it with their yes. Without it, skip step 5.
 
 Done when both answer, or you have told the person which is missing and what that leaves out.
 

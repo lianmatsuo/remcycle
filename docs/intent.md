@@ -96,6 +96,8 @@ Each is dated 2026-10-05 unless noted.
 
 **The dream's model call runs in the user's own Claude Code, headless.** Rejected: calling the API with a key, or with the user's subscription. Claude Code's terms do not let a third-party tool route requests through someone's subscription, but anyone may run their own Claude Code, so remcycle never handles credentials.
 
+**The model reads before the dream takes its turn.** Reading the sessions is the slow part of a dream, and it only reads memory, so it runs without the turn at changing memory and keeps what the model made of each session. The dream after it works from those and holds the turn only to apply them, so closing a thread or ruling on a question during a run is not refused for minutes. Each session is then read against memory as it stood before the run, not with what an earlier session in the same run added, and reconciling settles the difference.
+
 **Ingest when a session ends; the dream once a day, started by a session.** Ingest needs no model and takes seconds. The dream costs model calls, so a session starts it at most once in 20 hours, in a process of its own that outlives the session. It catches up on whatever it has not read.
 
 **The daily dream is on by default.** People install remcycle for the dream, so it runs with nothing to set up and is turned off with `dream daily off` or the panel. Rejected: asking before the first dream and leaving the nightly run as a setup step, which the first release did. Because it now spends the person's plan without a yes, how much from before it began it reads is the person's choice, asked once in the panel and in the guided setup; until then, only new sessions. A run has no cap unless the person sets one.

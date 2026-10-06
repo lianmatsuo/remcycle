@@ -8,7 +8,7 @@ import dream.dreaming
 from dream.archive import Archive
 from dream.claims import Claim, ClaimType, Evidence, Provenance, Scope, Status
 from dream.dreaming import dream as run_dream
-from dream.dreaming import publish_project, review_project
+from dream.dreaming import publish_project, read_ahead, review_project
 from dream.extract import ExtractionError, Reply
 from dream.memory import MemoryStore
 from dream.mirror import Mirror
@@ -721,3 +721,35 @@ def test_a_dream_given_a_moment_reads_only_the_sessions_that_ended_after_it(arch
 
     assert model.calls == 1
     assert [s.session_id for s in archive.awaiting_dream()] == ["s-before"]
+
+
+def test_reading_ahead_asks_the_model_and_changes_no_memory_so_the_dream_after_it_asks_nothing(archive, claude, tmp_path):
+    pnpm_session(claude)
+    archive.ingest(claude)
+    model = Model()
+
+    ahead = read_ahead(archive, memory_root=tmp_path / "memory", runner=model)
+
+    assert (model.calls, ahead.failures, ahead.cost_usd) == (1, [], 0.02)
+    assert not (tmp_path / "memory").exists()
+
+    def no_model(prompt):
+        raise AssertionError("the dream asked the model again")
+
+    report = run_dream(archive, memory_root=tmp_path / "memory", live_root=claude, runner=no_model, ask=False)
+
+    assert sorted(MemoryStore(tmp_path / "memory" / "-work-shop").entries()) == ["deploy-target", "package-manager"]
+    assert report.sessions == 1
+
+
+def test_a_dream_told_not_to_ask_leaves_a_session_with_nothing_read_ahead_unread(archive, claude, tmp_path):
+    pnpm_session(claude)
+    archive.ingest(claude)
+
+    def no_model(prompt):
+        raise AssertionError("the dream asked the model")
+
+    report = run_dream(archive, memory_root=tmp_path / "memory", live_root=claude, runner=no_model, ask=False)
+
+    assert (report.sessions, report.failures) == (0, [])
+    assert [s.session_id for s in archive.awaiting_dream()] == ["s-pnpm"]
