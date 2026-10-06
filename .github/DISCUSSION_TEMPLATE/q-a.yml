@@ -1,0 +1,17 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before pasting anything, take out what is private: session text, memory contents, project names and paths.
+  - type: textarea
+    id: question
+    attributes:
+      label: What you are trying to do
+      description: And where you got stuck. Paste what you ran and what it printed, if there was anything.
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: "What `claude --version` prints, your operating system, and which remcycle you have: the line `uv tool list` prints for it, or `git rev-parse --short HEAD` in a clone."

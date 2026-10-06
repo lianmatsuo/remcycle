@@ -14,3 +14,5 @@ scripts/check
 `scripts/check` needs [uv](https://docs.astral.sh/uv/) and, for the mod's half, Claude Code and [pnpm](https://pnpm.io). `scripts/check python` needs only uv.
 
 Then branch, make the change, run `scripts/check`, and open a pull request.
+
+Questions and ideas go to [Discussions](https://github.com/lianmatsuo/remcycle/discussions), and something that is wrong goes to an issue. Everyone here follows the [code of conduct](CODE_OF_CONDUCT.md).

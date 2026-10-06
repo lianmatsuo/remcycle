@@ -1,5 +1,11 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
+  - name: A question
+    url: https://github.com/lianmatsuo/remcycle/discussions/new?category=q-a
+    about: Ask in Discussions.
+  - name: An idea
+    url: https://github.com/lianmatsuo/remcycle/discussions/new?category=ideas
+    about: Start it in Discussions, where others can add to it.
   - name: A security problem
     url: https://github.com/lianmatsuo/remcycle/security/advisories/new
     about: Report privately anything that could expose someone's data.

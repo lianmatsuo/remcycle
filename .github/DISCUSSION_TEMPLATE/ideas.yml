@@ -1,5 +1,3 @@
-name: An idea
-description: Something remcycle could do, or do differently.
 labels: [enhancement]
 body:
   - type: textarea
