@@ -27,8 +27,10 @@ def test_a_release_is_one_version_everywhere_it_is_written():
     lock = tomllib.loads((ROOT / "uv.lock").read_text())
     locked = next(package["version"] for package in lock["package"] if package["name"] == "remcycle")
     mod = json.loads((ROOT / "mod/.claude-plugin/plugin.json").read_text())["version"]
+    listing = json.loads((ROOT / ".claude-plugin/marketplace.json").read_text())["plugins"][0]["source"]
 
-    assert {"uv.lock": locked, "mod/.claude-plugin/plugin.json": mod} == {
+    assert {"uv.lock": locked, "mod/.claude-plugin/plugin.json": mod, ".claude-plugin/marketplace.json": listing["ref"]} == {
         "uv.lock": _released(),
         "mod/.claude-plugin/plugin.json": _released(),
+        ".claude-plugin/marketplace.json": f"v{_released()}",
     }
