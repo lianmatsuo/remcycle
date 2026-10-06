@@ -226,16 +226,22 @@ class Archive:
             self._db.execute("VACUUM")
         return removed
 
-    def awaiting_dream(self) -> list[Undreamt]:
-        """Sessions with turns the dream has not read, oldest first."""
+    def awaiting_dream(self, since: str | None = None) -> list[Undreamt]:
+        """Sessions with turns the dream has not read, oldest first.
+
+        With `since`, an ISO time in UTC, only those that ended at or after it.
+        """
         rows = self._db.execute(
             """
             SELECT s.session_id, s.project, s.title, s.ended_at
             FROM sessions s LEFT JOIN dreams d ON d.session_id = s.session_id
-            WHERE d.turn_count IS NULL
-               OR d.turn_count != (SELECT count(*) FROM turns t WHERE t.session_id = s.session_id)
+            WHERE (d.turn_count IS NULL
+                   OR d.turn_count != (SELECT count(*) FROM turns t WHERE t.session_id = s.session_id))
+              -- Both sides are UTC, so the first 19 characters compare whatever each writes after the seconds.
+              AND (:since IS NULL OR substr(s.ended_at, 1, 19) >= substr(:since, 1, 19))
             ORDER BY s.ended_at
-            """
+            """,
+            {"since": since},
         )
         return [Undreamt(*row) for row in rows]
 

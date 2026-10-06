@@ -7,6 +7,7 @@ import sys
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 
@@ -15,15 +16,15 @@ try:
 except ImportError:  # Windows has no fcntl, and there commands do not take turns.
     fcntl = None
 
-from dream import outside, review
+from dream import daily, outside, review
 from dream.archive import NO_PROJECT, Archive, Recap, project_of
-from dream.dreaming import GLOBAL, dream, key, publish_project, render, review_project
+from dream.dreaming import GLOBAL, DreamReport, dream, key, publish_project, render, review_project
 from dream.extract import ClaudeCode
 from dream.gate import JUDGE_SCHEMA, JUDGE_SYSTEM, judge_with
 from dream.memory import MemoryStore
 from dream.outside import witness_with
 from dream.session import context, status
-from dream.settings import Settings, load_settings
+from dream.settings import HISTORIES, Settings, load_settings, put_setting
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -163,6 +164,11 @@ def _show(archive: Archive, args: argparse.Namespace) -> int:
 
 
 def _run(archive: Archive, args: argparse.Namespace) -> int:
+    return 1 if _dreamt(archive, args).failures else 0
+
+
+def _dreamt(archive: Archive, args: argparse.Namespace) -> DreamReport:
+    """One dream run: the archive brought up to date, the dream, and its report printed and saved."""
     _ingest(archive, args)
     report = dream(
         archive,
@@ -173,6 +179,7 @@ def _run(archive: Archive, args: argparse.Namespace) -> int:
         witness=witness_with(ClaudeCode(args.model, schema=outside.SCHEMA, system=outside.SYSTEM, effort=args.effort)),
         publish=args.publish,
         limit=args.limit,
+        since=args.since,
         progress=lambda line: print(line, flush=True),
     )
     written = args.reports / f"{datetime.now().astimezone():%Y-%m-%d-%H%M%S}.md"
@@ -180,7 +187,7 @@ def _run(archive: Archive, args: argparse.Namespace) -> int:
     written.write_text(render(report))
     print(render(report))
     print(f"report saved to {written}")
-    return 1 if report.failures else 0
+    return report
 
 
 def _review(archive: Archive, args: argparse.Namespace) -> int:
@@ -253,8 +260,24 @@ def _context(archive: Archive, args: argparse.Namespace) -> int:
 
 
 def _status(archive: Archive, args: argparse.Namespace) -> int:
-    print(json.dumps(status(args.memory, _project(args), _now(), live_root=args.root)))
+    held = status(args.memory, _project(args), _now(), live_root=args.root)
+    print(json.dumps({**held, "daily": _daily_status(archive, args)}))
     return 0
+
+
+def _daily_status(archive: Archive, args: argparse.Namespace) -> dict:
+    """How the daily dream stands, and how many sessions each history would have it read."""
+    state = daily.load(args.state)
+    began = state.began or _now()
+    return {
+        "on": args.daily_on,
+        "history": args.daily_history,
+        "limit": args.daily_limit,
+        "waiting": {history: len(archive.awaiting_dream(daily.cutoff(history, began))) for history in HISTORIES},
+        "started": state.started,
+        "finished": state.finished,
+        "failed": state.failed,
+    }
 
 
 def _resolve(archive: Archive, args: argparse.Namespace) -> int:
@@ -307,6 +330,98 @@ def _note_read(archive: Archive, args: argparse.Namespace) -> int:
     return 0
 
 
+def _daily(archive: Archive, args: argparse.Namespace) -> int:
+    if args.change:
+        return _daily_change(args.change)
+    if args.background:
+        return _daily_run(archive, args)
+    if not args.daily_on:
+        print("the daily dream is off: `dream daily on` turns it back on")
+        return 0
+    with _serialised(args.state):
+        state = daily.begin(daily.load(args.state), _now())
+        daily.save(args.state, state)
+        if not daily.is_due(state, _now()):
+            print(f"the daily dream is not due: the last one started at {state.started}")
+            return 0
+        waiting = archive.awaiting_dream(daily.cutoff(args.daily_history, state.began))
+        if not waiting:
+            print("nothing new for the daily dream to read")
+            return 0
+        daily.save(args.state, replace(state, started=_now(), finished=None, failed=None, log=str(args.log)))
+    daily.start([sys.executable, "-m", "dream.cli", "daily", "--background", "--db", str(args.db), "--root", str(args.root)], args.log)
+    print(f"the daily dream started in the background: {len(waiting)} session{'' if len(waiting) == 1 else 's'} to read")
+    return 0
+
+
+def _daily_run(archive: Archive, args: argparse.Namespace) -> int:
+    """The background half of `dream daily`: one dream over what is due, and a record of how it ended."""
+    state = daily.load(args.state)
+    run = argparse.Namespace(
+        **vars(args), publish=False, limit=args.daily_limit, since=daily.cutoff(args.daily_history, state.began or _now())
+    )
+    failed: str | None = "it stopped before it finished"
+    code = 1
+    try:
+        with _turn(args.memory):
+            report = _dreamt(archive, run)
+        code = 1 if report.failures else 0
+        failed = _failed(report.failures)
+    except _Busy as e:
+        failed = str(e)
+    finally:
+        daily.save(args.state, replace(daily.load(args.state), finished=_now(), failed=failed))
+    return code
+
+
+def _failed(failures: list[tuple[str, str]]) -> str | None:
+    """What the panel says went wrong, from the sessions a run could not read: how many, and the first reason."""
+    if not failures:
+        return None
+    count = len(failures)
+    return f"{count} session{'' if count == 1 else 's'} could not be read, because: {failures[0][1]}"
+
+
+def _daily_change(words: list[str]) -> int:
+    """Change how the daily dream runs, in the settings file, where the change can also be made by hand."""
+    match words:
+        case ["on" | "off" as switch]:
+            put_setting(os.environ, Path.home(), "daily_dream", "true" if switch == "on" else "false")
+            print(f"the daily dream is {switch}")
+        case ["history", choice] if choice in HISTORIES:
+            put_setting(os.environ, Path.home(), "daily_history", json.dumps(choice))
+            print(f"the daily dream reads {_HISTORY_SAID[choice]}")
+        case ["limit", "none"]:
+            put_setting(os.environ, Path.home(), "daily_limit", None)
+            print("the daily dream reads every session that is due")
+        case ["limit", count] if count.isdigit() and int(count) > 0:
+            put_setting(os.environ, Path.home(), "daily_limit", str(int(count)))
+            print(f"the daily dream reads at most {int(count)} sessions a day")
+        case _:
+            print("usage: dream daily [on | off | history new|week|all | limit N|none]", file=sys.stderr)
+            return 2
+    return 0
+
+
+_HISTORY_SAID = {
+    "new": "only sessions from after it began",
+    "week": "sessions from the week before it began, and every one since",
+    "all": "every session, however old",
+}
+
+
+@contextmanager
+def _serialised(file: Path) -> Iterator[None]:
+    """Hold a lock beside `file` for a moment, so two sessions starting together do not both start a dream."""
+    if fcntl is None:
+        yield
+        return
+    file.parent.mkdir(parents=True, exist_ok=True)
+    with file.with_name(f"{file.name}.lock").open("w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
 _CHANGES_MEMORY = (_run, _review, _publish, _resolve, _close, _reopen)
 
 
@@ -324,7 +439,14 @@ def _day(value: str) -> str:
 
 def _parser(settings: Settings) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="dream", description="Archive of Claude Code sessions.")
-    parser.set_defaults(exclude=settings.exclude, effort=settings.effort)
+    parser.set_defaults(
+        exclude=settings.exclude,
+        effort=settings.effort,
+        daily_on=settings.daily,
+        daily_history=settings.daily_history,
+        daily_limit=settings.daily_limit,
+        state=settings.memory.parent / "daily.json",
+    )
     commands = parser.add_subparsers(required=True)
 
     def command(name: str, run, help: str) -> argparse.ArgumentParser:
@@ -360,9 +482,22 @@ def _parser(settings: Settings) -> argparse.ArgumentParser:
     run.add_argument("--reports", type=Path, default=settings.reports, help=argparse.SUPPRESS)
     run.add_argument("--model", default=settings.model, help="model for extraction (default: %(default)s)")
     run.add_argument("--limit", type=int, metavar="N", help="read at most N sessions")
+    run.add_argument("--since", help=argparse.SUPPRESS)
     run.add_argument(
         "--publish", action="store_true", help="write accepted memory to the folders Claude Code loads"
     )
+
+    daily_ = command(
+        "daily",
+        _daily,
+        "start the daily dream if one is due, or change it: on, off, history new|week|all, limit N|none",
+    )
+    daily_.add_argument("change", nargs="*", metavar="CHANGE")
+    daily_.add_argument("--background", action="store_true", help=argparse.SUPPRESS)
+    daily_.add_argument("--root", type=Path, default=settings.transcripts, help=argparse.SUPPRESS)
+    daily_.add_argument("--memory", type=Path, default=settings.memory, help=argparse.SUPPRESS)
+    daily_.add_argument("--reports", type=Path, default=settings.reports, help=argparse.SUPPRESS)
+    daily_.set_defaults(model=settings.model, log=settings.memory.parent / "daily.log")
 
     reviewing = command("review", _review, "review the memories this project already has")
     reviewing.add_argument("--project", type=Path, help="project folder (default: this repository)")

@@ -63,3 +63,25 @@ def test_how_hard_the_model_thinks_is_left_to_claude_code_unless_the_settings_sa
     file.write_text('effort = "low"\n')
 
     assert (default.effort, load_settings({}, tmp_path).effort) == (None, "low")
+
+
+def test_the_daily_dream_is_on_reads_only_new_sessions_and_has_no_cap_until_the_settings_say(tmp_path):
+    file = tmp_path / ".config" / "remcycle" / "config.toml"
+    file.parent.mkdir(parents=True)
+
+    default = load_settings({}, tmp_path)
+    file.write_text('daily_dream = false\ndaily_history = "week"\ndaily_limit = 5\n')
+    chosen = load_settings({}, tmp_path)
+
+    assert (default.daily, default.daily_history, default.daily_limit) == (True, None, None)
+    assert (chosen.daily, chosen.daily_history, chosen.daily_limit) == (False, "week", 5)
+
+
+@pytest.mark.parametrize("contents", ['daily_dream = "yes"\n', 'daily_history = "month"\n', "daily_limit = 0\n"])
+def test_a_daily_dream_setting_that_cannot_be_used_is_an_error_naming_the_file(tmp_path, contents):
+    file = tmp_path / ".config" / "remcycle" / "config.toml"
+    file.parent.mkdir(parents=True)
+    file.write_text(contents)
+
+    with pytest.raises(ValueError, match="config.toml"):
+        load_settings({}, tmp_path)

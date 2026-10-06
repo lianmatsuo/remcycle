@@ -17,7 +17,18 @@ export type Waiting = {
   file: string
 }
 
+export type Daily = {
+  on: boolean
+  history: string | null
+  limit: number | null
+  waiting: { new: number; week: number; all: number }
+  started: string | null
+  finished: string | null
+  failed: string | null
+}
+
 export type Status = {
+  daily?: Daily
   project: string
   withheld: number
   last_dream: string | null

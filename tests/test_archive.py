@@ -457,3 +457,12 @@ def test_sessions_archived_before_their_project_was_excluded_can_be_found_and_re
         assert found(archive.search("pnpm", project=None)) == [("s-open", 0)]
 
     assert all(b"zebrafinch" not in left.read_bytes() for left in tmp_path.glob("archive.db*"))
+
+
+def test_the_sessions_waiting_can_be_kept_to_those_that_ended_after_a_moment(root, archive):
+    put_session(root, "s-old", [human("use pnpm here", 0, timestamp="2026-09-20T09:00:00.000Z")], cwd="/work/shop")
+    put_session(root, "s-new", [human("use bun here", 0, timestamp="2026-10-03T09:00:00.000Z")], cwd="/work/shop")
+    archive.ingest(root)
+
+    assert [s.session_id for s in archive.awaiting_dream(since="2026-10-01T00:00:00+00:00")] == ["s-new"]
+    assert [s.session_id for s in archive.awaiting_dream()] == ["s-old", "s-new"]

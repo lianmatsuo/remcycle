@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **The daily dream is on by default.** Once a day, the first session after 20 hours starts the dream in the background, with no scheduler to set up. The panel asks once how much history it should read, shows when it last ran and why it went wrong if it did, and turns it off. `dream daily` makes the same changes from the command line.
+
 ## 0.1.0
 
 The first public release.

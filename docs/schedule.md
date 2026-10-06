@@ -1,10 +1,22 @@
-# Running the dream every night
+# The daily dream
+
+remcycle runs the dream by itself. The mod runs `dream daily` whenever a session starts. When no daily dream has started in the last 20 hours and there is something new to read, that starts `dream run` in the background, in a process of its own that carries on after the session ends. Nothing needs setting up, and it runs only on days you use Claude Code.
 
 `dream run` is safe to run at any time and as often as you like. It reads only sessions it has not read, keeps what the model made of each one, and changes nothing the gate refuses. A run that is interrupted loses nothing: the next one carries on.
 
-Nothing here is set up for you. Pick one.
+## Its settings
 
-## Claude Code Desktop
+- `dream daily off` and `dream daily on`.
+- `dream daily history new`, `week` or `all`: how much from before it began it reads. Until you choose, only new sessions. The `/remcycle` panel asks this once.
+- `dream daily limit N`, or `none`: how many sessions one run reads at most. There is no limit until you set one.
+
+Each changes one line in `~/.config/remcycle/config.toml`, so it can be changed there by hand too. The background run writes to `~/.local/share/remcycle/daily.log`, and the panel shows when it last started and why it went wrong if it did. A session the model could not be asked about stays unread and is listed in the log with the reason. If the reason is that `claude` is not signed in, run `claude` in a terminal and sign in.
+
+## A fixed time instead
+
+To have the dream run at a set time, such as overnight, use one of these, and turn the daily dream off with `dream daily off` so the two do not both run.
+
+### Claude Code Desktop
 
 Desktop's scheduler starts a session at a time you choose. It runs only while the app is open and the computer is awake, and a missed run is caught up once on wake.
 
@@ -24,7 +36,7 @@ Do not change any memory yourself.
 
 Then set its schedule, folder and permission mode in the app: Code tab, Routines, the task's Edit form. Run it once by hand and allow the Bash call, so later runs do not stop to ask.
 
-## cron
+### cron
 
 ```
 30 3 * * * USER=you PATH=/home/you/.local/bin:/usr/bin:/bin /home/you/.local/bin/dream run >> /home/you/.local/share/remcycle/dream.log 2>&1

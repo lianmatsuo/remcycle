@@ -701,3 +701,23 @@ def test_only_a_project_with_a_folder_of_its_own_can_be_published(tmp_path):
             publish_project(nowhere, memory_root=tmp_path / "memory", live_root=tmp_path, backups=tmp_path / "b", write=True)
     with pytest.raises(LookupError, match="holds no memory"):
         publish_project("/work/unknown", memory_root=tmp_path / "memory", live_root=tmp_path, backups=tmp_path / "b", write=True)
+
+
+def test_a_dream_given_a_moment_reads_only_the_sessions_that_ended_after_it(archive, claude, tmp_path):
+    for session_id, day in (("s-before", "2026-09-20"), ("s-after", "2026-10-03")):
+        put_session(
+            claude,
+            session_id,
+            [
+                human("set up the js workspace", 0, timestamp=f"{day}T09:00:00.000Z"),
+                assistant_text("I'll use npm.", 1, timestamp=f"{day}T09:00:01.000Z"),
+                human("no, always use pnpm for JS projects here", 2, timestamp=f"{day}T09:00:02.000Z"),
+            ],
+            cwd=PROJECT,
+        )
+    model = Model()
+
+    dreamt(archive, claude, tmp_path, model, since="2026-10-01T00:00:00+00:00")
+
+    assert model.calls == 1
+    assert [s.session_id for s in archive.awaiting_dream()] == ["s-before"]

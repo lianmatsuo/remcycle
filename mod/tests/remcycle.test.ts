@@ -825,3 +825,111 @@ test('an answer this version of the pane cannot read is treated as no answer', a
     await ui.unmount()
   }
 })
+
+const DAILY = {
+  on: true,
+  history: null,
+  limit: null,
+  waiting: { new: 2, week: 9, all: 40 },
+  started: null,
+  finished: null,
+  failed: null,
+}
+
+test('a starting session sets off the daily dream when one is due, and says so', async ($, on) => {
+  const toasts: string[] = []
+  on('ui.toast', async (_$, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+  const calls = commandLine(on, { daily: 'the daily dream started in the background: 3 sessions to read\n' })
+  on('tool.register', async (_$, e) => ({ value: { tool: `mcp__remcycle__${e.name}` } }))
+  on('command.register', async (_$, e) => ({ value: { command: e.name } }))
+  on('session.start', async (_$, e) => ({ cwd: e.cwd }))
+
+  await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+
+  expect(calls).toContainEqual(['dream', 'daily'])
+  expect(toasts).toEqual(['remcycle: the daily dream started in the background: 3 sessions to read'])
+})
+
+test('a starting session with no daily dream due starts quietly', async ($, on) => {
+  const toasts: string[] = []
+  on('ui.toast', async (_$, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+  commandLine(on, { daily: 'the daily dream is not due: the last one started at 2026-10-05T10:00:00+00:00\n' })
+  on('tool.register', async (_$, e) => ({ value: { tool: `mcp__remcycle__${e.name}` } }))
+  on('command.register', async (_$, e) => ({ value: { command: e.name } }))
+  on('session.start', async (_$, e) => ({ cwd: e.cwd }))
+
+  await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
+
+  expect(toasts).toEqual([])
+})
+
+test('until the person chooses, the pane asks how much history the daily dream should read', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  const calls = commandLine(on, {
+    status: JSON.stringify({ ...STATUS, daily: DAILY }),
+    daily: 'the daily dream reads sessions from the week before it began, and every one since\n',
+  })
+
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    await ui.press({ key: 'refresh' })
+
+    expect(await ui.find({ type: 'Text', text: /^The daily dream is on$/ })).toBeDefined()
+    expect((await ui.find({ key: 'history-new' }))?.props.label).toBe('Only new ones (2)')
+    expect((await ui.find({ key: 'history-week' }))?.props.label).toBe('The week before too (9)')
+    expect((await ui.find({ key: 'history-all' }))?.props.label).toBe('Everything (40)')
+
+    await ui.press({ key: 'history-week' })
+
+    expect(calls).toContainEqual(['dream', 'daily', 'history', 'week'])
+    await ui.unmount()
+  }
+})
+
+test('once chosen, the pane says how the daily dream stands, why it last went wrong, and turns it off and on', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  const answers: Record<string, string> = {}
+  const calls = commandLine(on, answers)
+  const shown = async (daily: object, says: RegExp, button: string, change: string) => {
+    answers.status = JSON.stringify({ ...STATUS, daily })
+    answers.daily = `the daily dream is ${change}\n`
+
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const ui = await $.ui.mount({ ...PANE, surface })
+      await ui.press({ key: 'refresh' })
+
+      expect(await ui.find({ type: 'Text', text: says })).toBeDefined()
+      expect(await ui.find({ key: 'history-new' })).toBeUndefined()
+      expect((await ui.find({ key: 'daily-switch' }))?.props.label).toBe(button)
+
+      await ui.press({ key: 'daily-switch' })
+
+      expect(calls).toContainEqual(['dream', 'daily', change])
+      await ui.unmount()
+    }
+  }
+  const chosen = { ...DAILY, history: 'week', started: '2026-10-05T10:00:00+00:00' }
+
+  await shown(chosen, /^Daily dream running, started 5h ago$/, 'Turn off', 'off')
+  await shown({ ...chosen, finished: '2026-10-05T10:20:00+00:00' }, /^Daily dream on, last started 5h ago$/, 'Turn off', 'off')
+  await shown({ ...chosen, on: false }, /^Daily dream off$/, 'Turn on', 'on')
+
+  answers.status = JSON.stringify({
+    ...STATUS,
+    daily: { ...chosen, finished: '2026-10-05T10:20:00+00:00', failed: 'it stopped before it finished' },
+  })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'refresh' })
+
+  expect((await ui.find({ type: 'Text', text: /^The last daily dream went wrong: it stopped before it finished$/ }))?.props.color).toBe(
+    'warning',
+  )
+})

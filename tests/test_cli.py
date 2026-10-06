@@ -1,12 +1,14 @@
 import fcntl
 import json
+import sys
 from dataclasses import replace
 
 import dream.cli
+import dream.daily
 from dream.archive import Archive
 from dream.claims import Claim, ClaimType, Evidence, Provenance, Scope
 from dream.cli import main
-from dream.dreaming import GLOBAL, key
+from dream.dreaming import GLOBAL, DreamReport, key
 from dream.extract import Thread
 from dream.memory import MemoryStore
 from dream.mirror import Mirror
@@ -289,3 +291,120 @@ def test_publish_shows_what_it_would_write_and_writes_only_with_yes(tmp_path, ca
 
     assert main(["publish", *scope]) == 0
     assert "already matches" in capsys.readouterr().out
+
+
+def test_a_session_starts_the_daily_dream_in_the_background_once_a_day_when_there_is_something_new(
+    tmp_path, capsys, monkeypatch
+):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    started = []
+    monkeypatch.setattr(dream.daily, "start", lambda argv, log: started.append(argv))
+    clock = {"now": "2026-10-01T08:00:00+00:00"}
+    monkeypatch.setattr(dream.cli, "_now", lambda: clock["now"])
+    root, db = tmp_path / "projects", str(tmp_path / "archive.db")
+    scope = ["--db", db, "--root", str(root)]
+
+    def session(session_id, at):
+        put_session(root, session_id, [human("use bun here", 0, timestamp=at)], cwd="/work/shop")
+        assert main(["ingest", *scope]) == 0
+
+    def daily(at):
+        clock["now"] = at
+        assert main(["daily", *scope]) == 0
+        return capsys.readouterr().out
+
+    session("s-before", "2026-09-30T09:00:00.000Z")
+    capsys.readouterr()
+    assert "nothing new" in daily("2026-10-01T08:00:00+00:00")
+
+    session("s-after", "2026-10-01T10:00:00.000Z")
+    assert "started in the background: 1 session to read" in daily("2026-10-01T12:00:00+00:00")
+    assert "not due" in daily("2026-10-01T13:00:00+00:00")
+
+    session("s-next", "2026-10-01T15:00:00.000Z")
+    assert "started in the background" in daily("2026-10-02T10:00:00+00:00")
+    assert started == [[sys.executable, "-m", "dream.cli", "daily", "--background", *scope]] * 2
+
+
+def test_the_daily_dream_is_changed_in_the_settings_file_and_does_nothing_while_it_is_off(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    started = []
+    monkeypatch.setattr(dream.daily, "start", lambda argv, log: started.append(argv))
+    file = tmp_path / "config" / "remcycle" / "config.toml"
+    file.parent.mkdir(parents=True)
+    file.write_text('# Leave the client out.\nexclude = ["~/work/client"]\n')
+    db = ["--db", str(tmp_path / "archive.db")]
+
+    for change in (["off"], ["history", "week"], ["limit", "5"]):
+        assert main(["daily", *change, *db]) == 0
+    assert file.read_text() == (
+        '# Leave the client out.\nexclude = ["~/work/client"]\ndaily_dream = false\ndaily_history = "week"\ndaily_limit = 5\n'
+    )
+    capsys.readouterr()
+    assert main(["daily", *db]) == 0
+    assert "the daily dream is off" in capsys.readouterr().out
+    assert started == []
+
+    assert main(["daily", "on", *db]) == 0
+    assert main(["daily", "limit", "none", *db]) == 0
+    assert file.read_text() == '# Leave the client out.\nexclude = ["~/work/client"]\ndaily_history = "week"\ndaily_dream = true\n'
+    capsys.readouterr()
+
+    assert main(["daily", "history", "month", *db]) == 2
+    assert "usage: dream daily" in capsys.readouterr().err
+
+
+def test_the_background_daily_dream_reads_from_where_the_chosen_history_begins_and_records_how_it_ended(
+    tmp_path, capsys, monkeypatch
+):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    file = tmp_path / "config" / "remcycle" / "config.toml"
+    file.parent.mkdir(parents=True)
+    file.write_text('daily_history = "week"\ndaily_limit = 5\n')
+    state = tmp_path / "data" / "remcycle" / "daily.json"
+    dream.daily.save(state, dream.daily.State(began="2026-10-08T08:00:00+00:00", started="2026-10-08T12:00:00+00:00"))
+    monkeypatch.setattr(dream.cli, "_now", lambda: "2026-10-08T12:05:00+00:00")
+    asked, answers = [], iter([DreamReport(), DreamReport(failures=[("s-1", "the model gave no answer")])])
+
+    def stand_in(archive, **options):
+        asked.append((options["since"], options["limit"], options["publish"]))
+        return next(answers)
+
+    monkeypatch.setattr(dream.cli, "dream", stand_in)
+    background = ["daily", "--background", "--db", str(tmp_path / "archive.db"), "--root", str(tmp_path / "projects")]
+
+    assert main(background) == 0
+    assert asked == [("2026-10-01T08:00:00+00:00", 5, False)]
+    assert (dream.daily.load(state).finished, dream.daily.load(state).failed) == ("2026-10-08T12:05:00+00:00", None)
+
+    assert main(background) == 1
+    assert dream.daily.load(state).failed == "1 session could not be read, because: the model gave no answer"
+
+
+def test_the_status_says_how_the_daily_dream_stands_and_how_much_each_history_would_read(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setattr(dream.cli, "_now", lambda: "2026-10-08T08:00:00+00:00")
+    root, db = tmp_path / "projects", str(tmp_path / "archive.db")
+    for session_id, at in (("s-old", "2026-09-01"), ("s-week", "2026-10-03"), ("s-new", "2026-10-07T20")):
+        put_session(root, session_id, [human("use bun here", 0, timestamp=f"{at}T09:00:00.000Z"[:24])], cwd="/work/shop")
+    assert main(["ingest", "--root", str(root), "--db", db]) == 0
+    state = tmp_path / "data" / "remcycle" / "daily.json"
+    dream.daily.save(state, dream.daily.State(began="2026-10-07T08:00:00+00:00", started="2026-10-07T08:00:00+00:00"))
+    capsys.readouterr()
+
+    assert main(["status", "--db", db, "--project", str(tmp_path)]) == 0
+    daily = json.loads(capsys.readouterr().out)["daily"]
+
+    assert daily == {
+        "on": True,
+        "history": None,
+        "limit": None,
+        "waiting": {"new": 1, "week": 2, "all": 3},
+        "started": "2026-10-07T08:00:00+00:00",
+        "finished": None,
+        "failed": None,
+    }

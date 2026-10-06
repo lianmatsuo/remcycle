@@ -23,7 +23,7 @@ There are three parts.
 
 **The archive** is one file on your machine. When a session ends, what you typed and what Claude wrote back go into it, word for word. What tools printed is left out, which is most of a session's bulk. Text that looks like a password or a key is blanked before it is stored. Nothing in the archive is ever sent anywhere by the archive.
 
-**The dream** is a command that runs once a night, or whenever you run it. It reads only the sessions it has not read before. To read one it uses the model through your own Claude Code, the same way a session would, so this is the step that uses your plan.
+**The dream** is a command that runs once a day, started in the background by the first session after 20 hours, or whenever you run it. It reads only the sessions it has not read before. To read one it uses the model through your own Claude Code, the same way a session would, so this is the step that uses your plan.
 
 **The mod** is a small add-on inside Claude Code. It hands each new session what the dream learned, lets Claude look things up, and gives you a panel to see and steer it all.
 
@@ -112,7 +112,7 @@ Type `/remcycle` in any session. The panel shows:
 
 ## What stays in your hands
 
-Out of the box remcycle only saves what was said and answers when you ask it something. Two things run by themselves once you turn them on: the nightly dream, which uses your Claude plan to read new sessions, and the mod, which hands memory to every session.
+Once installed, two things run by themselves: the mod, which hands memory to every session, and the daily dream, which uses your Claude plan to read new sessions. `dream daily off`, or the switch in the panel, turns the dream off.
 
 Four things never happen without you:
 

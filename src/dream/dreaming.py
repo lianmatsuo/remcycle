@@ -84,6 +84,7 @@ def dream(
     runner: Runner,
     publish: bool = False,
     limit: int | None = None,
+    since: str | None = None,
     now: str | None = None,
     judge: Judge | None = None,
     witness: Witness | None = None,
@@ -91,13 +92,15 @@ def dream(
 ) -> DreamReport:
     """Read up to `limit` unread sessions and bring each project's memory up to date.
 
+    With `since`, only sessions that ended at or after that moment are read.
+
     With a `witness`, each project's repository is also asked whether its own changes
     finished a thread that no session has reported finished.
     """
     now = now or datetime.now(UTC).isoformat()
     report = DreamReport()
     work: dict[str, list[Undreamt]] = {project: [] for project in known(memory_root)}
-    for session in archive.awaiting_dream()[:limit]:
+    for session in archive.awaiting_dream(since)[:limit]:
         work.setdefault(session.project, []).append(session)
 
     global_claims: list[Claim] = []

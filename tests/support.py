@@ -29,12 +29,12 @@ def _row(type_: str, n: int, **fields) -> dict:
     }
 
 
-def _assistant(block: dict, n: int) -> dict:
-    return _row("assistant", n, message={"role": "assistant", "content": [block]})
+def _assistant(block: dict, n: int, **fields) -> dict:
+    return _row("assistant", n, message={"role": "assistant", "content": [block]}, **fields)
 
 
-def assistant_text(text: str, n: int = 0) -> dict:
-    return _assistant({"type": "text", "text": text}, n)
+def assistant_text(text: str, n: int = 0, **fields) -> dict:
+    return _assistant({"type": "text", "text": text}, n, **fields)
 
 
 def thinking(text: str, n: int = 0) -> dict:

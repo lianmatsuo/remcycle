@@ -62,7 +62,7 @@ The index is kept within what Claude Code loads by dropping lines, never by rewr
 |---|---|
 | Long-term store | remcycle's own copy of each project's memory folder, a git repository under its data folder. Claude Code's folder is written only on publish |
 | Capture during the day | Sessions keep writing memories as they do now. The dream takes them in at the start of each run, and a session's version always wins |
-| Dream | `dream run`, on any scheduler |
+| Dream | `dream daily`, which the mod runs at session start: `dream run` in the background, at most once in 20 hours. `dream run` on any scheduler as well |
 | What a conversation is given at its start | Mod, `prompt.context`: what applies everywhere and what the project left open, asked once per conversation so the prompt cache holds |
 | Recall | Mod-registered tool backed by `dream search` and `dream show` |
 | Verify at use, usage counts | Mod `tool.call` hook on reads of memory files |
@@ -96,7 +96,9 @@ Each is dated 2026-10-05 unless noted.
 
 **The dream's model call runs in the user's own Claude Code, headless.** Rejected: calling the API with a key, or with the user's subscription. Claude Code's terms do not let a third-party tool route requests through someone's subscription, but anyone may run their own Claude Code, so remcycle never handles credentials.
 
-**Ingest when a session ends; the dream on a schedule.** Ingest needs no model and takes seconds. The dream costs model calls and catches up once after a missed run.
+**Ingest when a session ends; the dream once a day, started by a session.** Ingest needs no model and takes seconds. The dream costs model calls, so a session starts it at most once in 20 hours, in a process of its own that outlives the session. It catches up on whatever it has not read.
+
+**The daily dream is on by default.** People install remcycle for the dream, so it runs with nothing to set up and is turned off with `dream daily off` or the panel. Rejected: asking before the first dream and leaving the nightly run as a setup step, which the first release did. Because it now spends the person's plan without a yes, how much from before it began it reads is the person's choice, asked once in the panel and in the guided setup; until then, only new sessions. A run has no cap unless the person sets one.
 
 **Secrets are redacted at ingest, projects can be excluded, and the archive file is owner-only.** Rejected: storing prompts as written and documenting the risk. Redacting at ingest means a secret never reaches the archive, at the cost of not being recoverable from it.
 

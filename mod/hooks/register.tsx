@@ -197,7 +197,22 @@ function readable(value: unknown): Status | null {
   }
 
   const index = value.index
+  const daily = value.daily
+  const waiting = isRecord(daily) ? daily.waiting : null
+  // A `dream` from before the daily dream sends no `daily`, and the pane then shows nothing of it.
+  const isDaily =
+    daily === undefined ||
+    (isRecord(daily) &&
+      typeof daily.on === 'boolean' &&
+      isTextOrNull(daily.history) &&
+      (daily.limit === null || typeof daily.limit === 'number') &&
+      isRecord(waiting) &&
+      ['new', 'week', 'all'].every(key => typeof waiting[key] === 'number') &&
+      isTextOrNull(daily.started) &&
+      isTextOrNull(daily.finished) &&
+      isTextOrNull(daily.failed))
   const isStatus =
+    isDaily &&
     isText(value.project) &&
     typeof value.withheld === 'number' &&
     isTextOrNull(value.last_dream) &&
@@ -358,6 +373,11 @@ async function close($: EngineInterface, slot: string): Promise<void> {
   await act($, `close ${heading(slot)}`, `closed ${heading(slot)}`, async () => (await dream($, args)) !== null)
 }
 
+/** Changes how the daily dream runs, through `dream daily`, which keeps the change in the settings file. */
+async function daily($: EngineInterface, change: string[], doing: string, done: string): Promise<void> {
+  await act($, doing, done, async () => (await dream($, ['daily', ...change])) !== null)
+}
+
 async function reopen($: EngineInterface, slot: string): Promise<void> {
   const args = ['reopen', ...(await scope($)), '--', slot]
 
@@ -441,6 +461,13 @@ export const register: Register = on => {
       name: 'remcycle',
       description: 'Show what the dream holds for this project and what waits for your ruling',
     })
+
+    // The daily dream: started from here when one is due, so it needs no scheduler. It runs in the background.
+    const started = await dream($, ['daily'], 10_000)
+
+    if (started?.startsWith('the daily dream started')) {
+      $.ui.toast(`remcycle: ${started.trim()}`)
+    }
 
     return next(e)
   })
@@ -764,6 +791,76 @@ export const register: Register = on => {
       )
     }
 
+    const daySet = now.daily
+    const isRunning = daySet?.started != null && daySet.finished === null && daySet.failed === null
+    const lastStarted = ago(daySet?.started ?? null, clock)
+    const since = lastStarted === 'now' ? 'just now' : `${lastStarted} ago`
+    const dailyCard =
+      daySet === undefined ? null : daySet.on && daySet.history === null ? (
+        <Box key="daily-setup" flexDirection="column" rowGap={1} borderStyle="round" borderDimColor paddingX={1}>
+          <Text bold>The daily dream is on</Text>
+          <Text>
+            Once a day, when a session starts, it reads your new sessions in the background, through your own Claude
+            Code, so it uses your plan. Should it read the sessions from before it began as well?
+          </Text>
+          {saving === null && (
+            <Box columnGap={1} rowGap={1} flexWrap="wrap">
+              <Button
+                key="history-new"
+                label={`Only new ones (${daySet.waiting.new})`}
+                onPress={press('history-new', () =>
+                  daily($, ['history', 'new'], 'have the daily dream read only new sessions', 'the daily dream reads only new sessions'),
+                )}
+              />
+              <Button
+                key="history-week"
+                label={`The week before too (${daySet.waiting.week})`}
+                onPress={press('history-week', () =>
+                  daily($, ['history', 'week'], 'have the daily dream read the week before', 'the daily dream reads the week before too'),
+                )}
+              />
+              <Button
+                key="history-all"
+                label={`Everything (${daySet.waiting.all})`}
+                onPress={press('history-all', () =>
+                  daily($, ['history', 'all'], 'have the daily dream read everything', 'the daily dream reads every session'),
+                )}
+              />
+              <Button
+                key="daily-switch"
+                label="Turn it off"
+                onPress={press('daily-switch', () => daily($, ['off'], 'turn the daily dream off', 'turned the daily dream off'))}
+              />
+            </Box>
+          )}
+        </Box>
+      ) : (
+        <Box key="daily" flexDirection="column">
+          <Box justifyContent="space-between" alignItems="center" columnGap={1}>
+            <Text dimColor>
+              {!daySet.on
+                ? 'Daily dream off'
+                : isRunning
+                  ? `Daily dream running, started ${since}`
+                  : daySet.started === null
+                    ? 'Daily dream on, not run yet'
+                    : `Daily dream on, last started ${since}`}
+            </Text>
+            {saving === null && (
+              <Button
+                key="daily-switch"
+                label={daySet.on ? 'Turn off' : 'Turn on'}
+                onPress={press('daily-switch', () =>
+                  daySet.on
+                    ? daily($, ['off'], 'turn the daily dream off', 'turned the daily dream off')
+                    : daily($, ['on'], 'turn the daily dream on', 'turned the daily dream on'),
+                )}
+              />
+            )}
+          </Box>
+          {daySet.failed !== null && <Text color="warning">{`The last daily dream went wrong: ${daySet.failed}`}</Text>}
+        </Box>
+      )
     const full = fullness(now.index)
     const position = now.waiting.length === 0 ? 0 : (await read($, at)) % now.waiting.length
     const question = now.waiting[position]
@@ -915,6 +1012,7 @@ export const register: Register = on => {
           </Box>
         </Box>
         {saving !== null ? <Text color="warning">{`Saving: ${saving}…`}</Text> : did !== null && <Text dimColor>{did}</Text>}
+        {dailyCard}
         <Box
           key="columns"
           flexDirection={isWide ? 'row' : 'column'}

@@ -34,12 +34,11 @@ claude plugin install remcycle@remcycle
 
 The first line installs the `dream` command, and the other two install the mod. Then:
 
-1. **Say what it should never read.** A client's or an employer's projects go in [the settings file](docs/reference.md#settings) before anything else.
+1. **Say what it should never read.** A client's or an employer's projects go in [the settings file](docs/reference.md#settings) before anything else, because the dream starts reading by itself.
 2. **Build the archive.** `dream ingest` copies what was said in your past sessions into one local file. It sends nothing anywhere.
-3. **Run a first dream.** `dream run --limit 3` reads your three oldest sessions. This is the step that uses your Claude plan: one long session came to about $0.60 at API prices.
-4. **Open the panel.** Start a new session and type `/remcycle`.
+3. **Open the panel.** Start a new session and type `/remcycle`. It asks once how much of your history the daily dream should read: only new sessions, the week before too, or everything.
 
-To have the dream run by itself, see [Running it every night](docs/schedule.md).
+From then on the dream runs by itself. Once a day, the first session after 20 hours starts it in the background, and it reads the sessions that are new. This is the part that uses your Claude plan: one long session came to about $0.60 at API prices. `dream daily off`, or the switch in the panel, turns it off, and `dream run` runs it at any time. [The daily dream](docs/schedule.md) has its settings, and how to run it at a fixed time instead.
 
 ### Or let Claude set it up
 
@@ -49,7 +48,7 @@ Paste this into Claude Code:
 Set up remcycle for me. Clone https://github.com/lianmatsuo/remcycle into ~/remcycle, or run git pull there if it is already cloned. Then read docs/setup-with-claude.md in that folder and follow it step by step.
 ```
 
-Claude installs the command, asks which projects to leave out, and builds the archive. It stops and asks you before each of the three steps that cost model usage or change how Claude Code runs: the first dream, loading the mod in every session, and the nightly run. You can say no to any of them and turn it on later.
+Claude installs the command, asks which projects to leave out, and builds the archive. It asks you before loading the mod in every session, which also starts the daily dream, and asks how much of your history that dream should read. You can say no to either and turn it on later.
 
 Set up this way, remcycle runs from that folder, so it has to stay where it is. [Removing it](docs/reference.md#removing-it) says how to undo each part.
 
@@ -92,7 +91,7 @@ A skill or an instructions file is text that Claude reads and may or may not act
 - **It adds a panel.** `/remcycle` shows what it holds, and lets you rule on what it doubts.
 - **When a session ends**, it files what was said.
 
-Behind the mod is a program of its own, the `dream` command, with an archive, a nightly run, and checks that everything the dream writes to memory has to pass.
+Behind the mod is a program of its own, the `dream` command, with an archive, a daily run, and checks that everything the dream writes to memory has to pass.
 
 ```mermaid
 flowchart TB
@@ -105,7 +104,7 @@ flowchart TB
         dream{{"The dream command"}}
         archive[("Archive<br/>every session")]
         copy[("The dream's copy<br/>of memory")]
-        night(["Nightly run"])
+        night(["Once a day,<br/>from a session"])
     end
     model(["The model, through<br/>your own Claude Code"])
     session <--> mod
@@ -119,7 +118,7 @@ flowchart TB
 
 ## What it does without asking
 
-Once installed it only saves what was said and answers when you ask it something. The nightly dream, and the mod's part in every session, start when you turn them on.
+Once installed, it saves what was said when a session ends, hands each new session what was learned, and once a day starts the dream in the background to read the new sessions. The dream is the part that uses your Claude plan, and `dream daily off`, or the switch in the panel, turns it off.
 
 Four things never happen without you: writing into the memory Claude Code itself loads, retiring or replacing a note you already had, deleting anything from the archive, and reading a project you have excluded.
 
@@ -127,7 +126,7 @@ Four things never happen without you: writing into the memory Claude Code itself
 
 - [How it works](docs/how-it-works.md): the idea, in plain words and pictures.
 - [Reference](docs/reference.md): every command and setting.
-- [Running it every night](docs/schedule.md): the scheduled task and the cron line.
+- [The daily dream](docs/schedule.md): its settings, and running it at a fixed time instead.
 - [Design notes](docs/intent.md): why it is built this way, and what was rejected.
 
 ## Status

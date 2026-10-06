@@ -134,9 +134,23 @@ That loads it for one session without installing it, which is the way to try a c
 
 Mods are on by default from Claude Code 2.1.287 in the terminal and 2.1.286 in the desktop app.
 
-## Running it every night
+## The daily dream
 
-[schedule.md](schedule.md) has a ready-made task for Claude Code Desktop's scheduler and a cron line.
+```bash
+uv run dream daily
+```
+
+The mod runs this when a session starts. If no daily dream has started in the last 20 hours and there is something new to read, it starts `dream run` in the background, in a process of its own so it carries on after the session ends, and says how many sessions it will read. Otherwise it does nothing. Its output goes to `~/.local/share/remcycle/daily.log`, and its report under `reports/` like any run's.
+
+What it reads depends on the history chosen, counted back from the first time it was asked to run:
+
+- `dream daily history new`: only sessions that ended after that. This is what it reads until you choose.
+- `dream daily history week`: the week before as well.
+- `dream daily history all`: every session, however old.
+
+`dream daily limit N` caps how many sessions one run reads, and `dream daily limit none` takes the cap away, which is the default. `dream daily off` and `dream daily on` turn it off and on. Each of these changes one line in the settings file, so it can be made there by hand too. The panel asks the history question once, shows when the dream last started and why it went wrong if it did, and has the off switch.
+
+[schedule.md](schedule.md) says how to run the dream at a fixed time instead.
 
 ## What the archive holds, and what protects it
 
@@ -156,9 +170,12 @@ The archive is one local SQLite file and ingest sends nothing anywhere. The drea
 exclude = ["~/work/private-client"]
 model = "sonnet"
 effort = "low"
+daily_dream = true
+daily_history = "week"
+daily_limit = 10
 ```
 
-`model` and `effort` apply to every model step. Leave `effort` out to use Claude Code's default.
+`model` and `effort` apply to every model step. Leave `effort` out to use Claude Code's default. The three `daily_` settings are [the daily dream](#the-daily-dream)'s: whether it runs, how much history it reads, and how many sessions one run reads at most.
 
 Locations follow the environment: `CLAUDE_CONFIG_DIR` for Claude Code's files, `XDG_DATA_HOME` for the archive and `XDG_CONFIG_HOME` for the settings file.
 
@@ -167,7 +184,7 @@ Locations follow the environment: `CLAUDE_CONFIG_DIR` for Claude Code's files, `
 Each part comes out by itself.
 
 - **The mod.** `claude plugin marketplace remove remcycle`, which also uninstalls it.
-- **The nightly run.** Delete the `remcycle-dream` task in the desktop app, or the `dream run` line in `crontab -e`.
+- **The daily dream.** `dream daily off`. If you also scheduled it at a fixed time, delete the `remcycle-dream` task in the desktop app, or the `dream run` line in `crontab -e`.
 - **The command.** `uv tool uninstall remcycle`.
 - **What it kept.** `~/.local/share/remcycle` holds the archive, the dream's copy of memory, the reports and the backups. `~/.config/remcycle` holds the settings. Deleting both removes everything remcycle stored.
 
