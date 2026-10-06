@@ -50,7 +50,7 @@ class Mirror:
                     store.forget(path.stem)
                 synced[name] = _digest(path)
         for name in set(synced) - set(current):
-            (self.folder / name).unlink(missing_ok=True)
+            disk.remove(self.folder / name)
             store.forget(Path(name).stem)
             del synced[name]
         store.ensure_indexed()
@@ -63,7 +63,7 @@ class Mirror:
         """A fresh copy to change. The mirror itself stays as it is until `accept`."""
         self._finish_accept()
         if self.staging.exists():
-            shutil.rmtree(self.staging)
+            disk.clear(self.staging)
         # A writer that was killed leaves the file it was still writing. It is not part of the memory.
         shutil.copytree(self.folder, self.staging, ignore=shutil.ignore_patterns(".git", "*.new"))
         return self.staging
@@ -93,11 +93,11 @@ class Mirror:
         if (self.staging / ".git").exists():
             if self.folder.exists():
                 if self._retired.exists():
-                    shutil.rmtree(self._retired)
+                    disk.clear(self._retired)
                 disk.rename(self.folder, self._retired)
             disk.rename(self.staging, self.folder)
         if self._retired.exists():
-            shutil.rmtree(self._retired)
+            disk.clear(self._retired)
 
     def publish(self, live: Path, backup: Path | None = None) -> None:
         """Write the mirror's memory files to live memory, unless live changed since the sync.
@@ -116,7 +116,7 @@ class Mirror:
         for name, path in ours.items():
             shutil.copyfile(path, live / name)
         for name in set(current) - set(ours):
-            (live / name).unlink()
+            disk.remove(live / name)
         self._save_synced({name: _digest(path) for name, path in ours.items()})
         self._commit("published to live memory")
 

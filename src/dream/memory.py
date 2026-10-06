@@ -432,7 +432,7 @@ class MemoryStore:
         self._render()
 
     def allow_topics(self) -> None:
-        self._flat_file.unlink(missing_ok=True)
+        disk.remove(self._flat_file)
 
     def fit_index(self, max_lines: int, max_bytes: int) -> list[str]:
         """Write the index sessions load, within budget. Returns the entries left out of it.
@@ -455,7 +455,7 @@ class MemoryStore:
             self._lines_file.parent.mkdir(exist_ok=True)
             disk.put(self._lines_file, "".join(lines))
         for page in self._folder.glob(f"{TOPIC_PAGE}*.md"):
-            page.unlink()
+            disk.remove(page)
         if not lines and not index.exists():
             return []
         records, entries = self._records(), self.entries()

@@ -887,3 +887,36 @@ def test_what_a_session_said_for_every_project_is_not_lost_when_the_copy_for_all
     assert archive.awaiting_dream() == []
     given = context(tmp_path / "memory", "/work/other", now="2026-10-03T09:00:00+00:00", live_root=claude)
     assert given["everywhere"] == ["Use pnpm for JS projects."]
+
+
+def test_a_delete_refused_while_a_reader_has_the_file_open_is_made_once_the_reader_lets_go(tmp_path, monkeypatch):
+    live = tmp_path / "live"
+    live.mkdir()
+    (live / "deploy-target.md").write_text(LEGACY, encoding="utf-8", newline="\n")
+    mirror = Mirror(tmp_path / "memory" / "-work-shop")
+    mirror.sync(live, PROJECT)
+    mirror.stage()
+    (live / "deploy-target.md").unlink()
+    unlink, rmtree, refused = os.unlink, shutil.rmtree, []
+
+    def unlink_refused_twice(file, *rest, **more):
+        if Path(file) == mirror.folder / "deploy-target.md" and refused.count("file") < 2:
+            refused.append("file")
+            raise PermissionError("another process has the file open")
+        unlink(file, *rest, **more)
+
+    def rmtree_refused_once(folder, *rest, **more):
+        if Path(folder) == mirror.staging and "folder" not in refused:
+            refused.append("folder")
+            raise PermissionError("another process has a file in the folder open")
+        rmtree(folder, *rest, **more)
+
+    monkeypatch.setattr(dream.disk, "PATIENCE", 5.0)
+    monkeypatch.setattr(os, "unlink", unlink_refused_twice)
+    monkeypatch.setattr(shutil, "rmtree", rmtree_refused_once)
+
+    mirror.sync(live, PROJECT)
+    staged = mirror.stage()
+
+    assert sorted(refused) == ["file", "file", "folder"]
+    assert not (mirror.folder / "deploy-target.md").exists() and not (staged / "deploy-target.md").exists()

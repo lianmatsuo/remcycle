@@ -1,16 +1,17 @@
-"""Writing remcycle's files and moving them into place, the same on every system."""
+"""Writing remcycle's files, moving them into place and taking them away, the same on every system."""
 
 import os
 import secrets
+import shutil
 import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
 
 PATIENCE = 2.0 if sys.platform == "win32" else 0.0
-"""Seconds a move is tried again for after it is refused. Windows refuses to move a file while
-another process has it open, and a folder while one has a file in it open, so a reader passing at
-that moment is waited out."""
+"""Seconds a move or a delete is tried again for after it is refused. Windows refuses to move or
+delete a file while another process has it open, and a folder while one has a file in it open,
+so a reader passing at that moment is waited out."""
 
 _STEP = 0.02
 
@@ -26,7 +27,7 @@ def put(file: Path, text: str) -> None:
         fresh.write_text(text, encoding="utf-8", newline="\n")
         replace(fresh, file)
     finally:
-        fresh.unlink(missing_ok=True)
+        remove(fresh)
 
 
 def replace(source: Path, target: Path) -> None:
@@ -39,11 +40,24 @@ def rename(source: Path, target: Path) -> None:
     _patiently(os.rename, source, target)
 
 
-def _patiently(move: Callable[[Path, Path], None], source: Path, target: Path) -> None:
+def remove(file: Path) -> None:
+    """Delete a file, if it is there."""
+    try:
+        _patiently(os.unlink, file)
+    except FileNotFoundError:
+        pass
+
+
+def clear(folder: Path) -> None:
+    """Delete a folder and everything in it."""
+    _patiently(shutil.rmtree, folder)
+
+
+def _patiently(act: Callable[..., None], *paths: Path) -> None:
     deadline = time.monotonic() + PATIENCE
     while True:
         try:
-            move(source, target)
+            act(*paths)
         except PermissionError:
             if time.monotonic() >= deadline:
                 raise
