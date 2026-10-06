@@ -794,3 +794,37 @@ def test_an_accept_refused_while_a_reader_has_a_file_of_the_copy_open_is_made_on
 
     assert len(refused) == 3
     assert set(MemoryStore(mirror.folder).entries()) == {"package-manager"}
+
+
+def test_a_project_whose_copy_another_program_holds_open_waits_and_the_other_projects_are_dreamt(archive, claude, tmp_path, monkeypatch):
+    pnpm_session(claude)
+    put_session(
+        claude,
+        "s-site",
+        [human("set up the js workspace", 0), assistant_text("I'll use npm.", 1), human("no, always use pnpm for JS projects here", 2)],
+        cwd="/work/site",
+    )
+    rename = os.rename
+
+    def held_open(source, target):
+        if os.path.basename(source) == "-work-shop":
+            raise PermissionError("another program has a file in the folder open")
+        rename(source, target)
+
+    monkeypatch.setattr(dream.disk, "PATIENCE", 0.0)
+    monkeypatch.setattr(os, "rename", held_open)
+
+    first = dreamt(archive, claude, tmp_path, Model())
+    second = dreamt(archive, claude, tmp_path, Model())
+
+    for report in (first, second):
+        shop = next(project for project in report.projects if project.project == PROJECT)
+        assert not shop.merged and "another program has it open" in shop.problems[0]
+    assert next(project for project in first.projects if project.project == "/work/site").merged
+    assert [session.session_id for session in archive.awaiting_dream()] == ["s-pnpm"]
+
+    monkeypatch.undo()
+    dreamt(archive, claude, tmp_path, Model())
+
+    assert archive.awaiting_dream() == []
+    assert "package-manager" in MemoryStore(tmp_path / "memory" / "-work-shop").entries()

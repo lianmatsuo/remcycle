@@ -37,6 +37,8 @@ from dream.reconcile import (
 from dream.review import ReviewReport, review
 
 GLOBAL = "(global)"
+# Why a project's memory was left as it was when its folders could not be moved. The next dream takes it up again.
+_HELD_OPEN = "its copy of memory could not be moved into place, as happens on Windows while another program has it open"
 # Room left in the index for what sessions add during the day.
 _HEADROOM_LINES = 10
 _HEADROOM_BYTES = 1_500
@@ -167,9 +169,14 @@ def dream(
     for project, sessions in work.items():
         mirror = Mirror(memory_root / key(project))
         live = live_root / key(project) / "memory"
-        mirror.sync(live, project)
-        store = MemoryStore(mirror.stage())
         outcome = ProjectReport(project)
+        try:
+            mirror.sync(live, project)
+            store = MemoryStore(mirror.stage())
+        except PermissionError:
+            outcome.problems.append(_HELD_OPEN)
+            report.projects.append(outcome)
+            continue
         read: list[str] = []
 
         for session in sessions:
@@ -350,7 +357,10 @@ def _settle(mirror: Mirror, outcome: ProjectReport, message: str, judge: Judge |
     outcome.problems = check(mirror.folder, mirror.staging, judge)
     outcome.merged = not outcome.problems
     if outcome.merged:
-        mirror.accept(message)
+        try:
+            mirror.accept(message)
+        except PermissionError:
+            outcome.problems, outcome.merged = [_HELD_OPEN], False
     return outcome.merged
 
 
