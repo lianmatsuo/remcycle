@@ -232,6 +232,10 @@ def test_how_much_a_memory_is_needed_counts_each_time_it_was_said_and_each_time_
     store.apply([Add(claim("package-manager", "Use pnpm for JS projects."))])
     assert store.needed("package-manager") == 1
 
+    # More turns of the session it was first said in are the same occasion, not another one.
+    store.apply([Confirm("package-manager", Evidence("7f3a9c2e-1b4d-4e6f-8a90-123456789abc", 10, 11), "2026-10-03T09:00:00Z")])
+    assert store.needed("package-manager") == 1
+
     store.apply([Confirm("package-manager", Evidence("another-session", 10, 11), "2026-10-04T09:00:00Z")])
     store.note_read("package-manager", folder, "2026-10-05T09:00:00Z")
     store.note_found(["package-manager", "no-such-memory"], "2026-10-06T09:00:00Z")
@@ -250,6 +254,30 @@ def test_among_memories_that_match_a_search_alike_the_one_needed_most_comes_firs
 
     assert [found.slot for found in store.find("biome")] == [second, first]
     assert [found.slot for found in store.find("lint js")] == ["lint-js"]
+
+    # How a memory matched still comes first: one found by its name leads however much the others are needed.
+    store.apply([Add(claim("biome", "Biome is pinned to one version across the repo."))])
+    assert [found.slot for found in store.find("biome")] == ["biome", second, first]
+
+
+def test_two_counts_written_at_once_both_finish(folder, monkeypatch):
+    store = MemoryStore(folder)
+    store.apply([Add(claim("package-manager", "Use pnpm for JS projects."))])
+    put_in_place = os.replace
+    others = []
+
+    def while_another_writer_runs(written, target):
+        # Between one writer finishing its file and putting it in place, a second writer does both.
+        if not others:
+            others.append("second")
+            MemoryStore(folder).note_found(["package-manager"], "2026-10-06T09:00:01Z")
+        put_in_place(written, target)
+
+    monkeypatch.setattr(os, "replace", while_another_writer_runs)
+
+    store.note_found(["package-manager"], "2026-10-06T09:00:00Z")
+
+    assert store.reads("package-manager") >= 1
 
 
 def test_an_index_over_its_budget_sheds_the_oldest_unread_legacy_lines_and_keeps_every_file(folder):

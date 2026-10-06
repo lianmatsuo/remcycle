@@ -28,7 +28,7 @@ uv run dream search retention sweep
 
 Matching memories first, found by name, alias or words, then the best-matching turns from the current repository's sessions. Each turn is labelled `session#turn`. What you typed ranks above what Claude wrote. Last comes what each session it found was, in a few lines: the summary the dream wrote when it read that session.
 
-Among memories that match alike, the one needed most often comes first. A memory is needed each time you say it in a session and each time a search or a session looks it up, so a search that brings a memory up counts towards that.
+Among memories that match alike, the one needed most often comes first. A memory is needed once for every session it came up in, and once more each time a search brings it up or a session reads its file. Those look-ups are counted as they happen, and a dream that is running at the time does not lose them.
 
 | Option | Effect |
 |---|---|
@@ -50,7 +50,7 @@ Prints those turns as archived. The session can be given by the start of its id.
 uv run dream show 7f3a9c2e --summary
 ```
 
-Prints what the session was in a few lines, in place of its turns: its day, title and length, and the summary the dream wrote. A session the dream has not read as it now stands has no summary yet.
+Prints what the session was in a few lines, in place of its turns: its day, title and length, and the summary the dream wrote. A session the dream has not read as it now stands has no summary yet, and is shown by the first thing you typed in it.
 
 ## Dream
 
@@ -75,7 +75,7 @@ The dream works on its own copy of each project's memory under `~/.local/share/r
 
 Up to 60 entries the index is one line per entry. Past that it lists topics, and each topic has a page of its entries' lines. A topic's line names every memory on its page while the index has room. Lines are moved between the two, never rewritten. A review keeps the index one line per entry if, listed by topic, it leads the model to the right memory for fewer of the entries' probe questions. The memory Claude Code loads is not touched unless you pass `--publish`, and publishing is refused if that memory changed while the dream ran.
 
-With the mod loaded you do not need to publish for sessions to get what the dream learned: the mod hands each new session those memories, up to about 4,000 characters. What you said in the last two weeks comes first, newest first; older memories follow, the most needed first, so what is left out when room runs short was said once, long ago. Publishing is for changing what Claude Code itself holds, which a handed-over list cannot do: taking a retired memory out of what it loads, or shortening an index that is nearly full.
+With the mod loaded you do not need to publish for sessions to get what the dream learned: the mod hands each new session those memories, up to about 4,000 characters. The most needed come first, and among equals the newest. Something you said in the last two weeks counts as needed once more, so it is not passed over before it has had time to come up again. What is left out when room runs short is what was needed least. Publishing is for changing what Claude Code itself holds, which a handed-over list cannot do: taking a retired memory out of what it loads, or shortening an index that is nearly full.
 
 ```bash
 uv run dream publish

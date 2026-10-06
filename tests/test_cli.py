@@ -1,11 +1,12 @@
 import fcntl
 import json
+from dataclasses import replace
 
 import dream.cli
 from dream.archive import Archive
 from dream.claims import Claim, ClaimType, Evidence, Provenance, Scope
 from dream.cli import main
-from dream.dreaming import key
+from dream.dreaming import GLOBAL, key
 from dream.extract import Thread
 from dream.memory import MemoryStore
 from dream.mirror import Mirror
@@ -62,9 +63,11 @@ def test_a_session_is_shown_in_brief_once_the_dream_has_read_it(tmp_path, capsys
 
     assert main(["show", "--db", str(db), "7f3a9c2e", "--summary"]) == 0
     unread = capsys.readouterr().out
-    assert unread.splitlines()[0] == "7f3a9c2e  2026-10-01  Refund path  2 turns"
-    assert "The dream has not read this session as it now stands" in unread
-    assert "should refunds bypass the ledger" not in unread
+    assert unread == (
+        "7f3a9c2e  2026-10-01  Refund path  2 turns\n"
+        "The dream has not read this session as it now stands, so it has no summary yet.\n"
+        "It opened with: should refunds bypass the ledger\n"
+    )
 
     Archive(db).keep_digest(session_id, {"summary": "Agreed that every refund posts to the ledger first."})
 
@@ -72,7 +75,6 @@ def test_a_session_is_shown_in_brief_once_the_dream_has_read_it(tmp_path, capsys
     assert capsys.readouterr().out == (
         "7f3a9c2e  2026-10-01  Refund path  2 turns\n"
         "Agreed that every refund posts to the ledger first.\n"
-        "Read its turns back with --first and --last.\n"
     )
 
 
@@ -119,13 +121,20 @@ def test_a_memory_that_a_search_brings_up_is_counted_as_looked_up(tmp_path, caps
         said_at="2026-10-02T09:00:00Z",
     )
     copy.apply([Add(said)])
+    everywhere = MemoryStore(memory / key(GLOBAL))
+    everywhere.folder.mkdir(parents=True)
+    everywhere.apply([Add(replace(said, slot="lockfile", statement="Commit the pnpm lockfile."))])
     scope = ["--project", str(project), "--memory", str(memory), "--db", str(tmp_path / "archive.db")]
 
     assert main(["search", *scope, "pnpm"]) == 0
     assert "memory      package-manager (words)  Use pnpm for JS projects." in capsys.readouterr().out
     assert main(["search", *scope, "yarn"]) == 0
 
-    assert copy.reads("package-manager") == 1
+    assert (copy.reads("package-manager"), everywhere.reads("lockfile")) == (1, 1)
+
+    # A session reading the memory's file in the dream's own copy is a look-up too.
+    assert main(["note-read", str(copy.folder / "package-manager.md"), "--memory", str(memory), "--db", str(tmp_path / "archive.db")]) == 0
+    assert copy.reads("package-manager") == 2
 
 
 def test_ingest_says_how_many_sessions_the_dream_has_not_read(tmp_path, capsys, monkeypatch):

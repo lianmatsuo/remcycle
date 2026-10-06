@@ -242,6 +242,15 @@ test('reading a memory whose subject has gone tells the model so', async ($, on)
   expect(calls).toEqual([['dream', 'note-read', '/home/me/.claude/projects/-work-shop/memory/deploy-script.md']])
 })
 
+test('reading a memory in the copy the dream keeps is noted as well', async ($, on) => {
+  const calls = commandLine(on, { 'note-read': '' })
+  on('tool.call', { tool: 'Read' }, async () => ({ result: { type: 'text' } as never }))
+
+  await $.tool.call({ tool: 'Read', file_path: '/home/me/.local/share/remcycle/memory/-work-shop/ci-runner.md' })
+
+  expect(calls).toEqual([['dream', 'note-read', '/home/me/.local/share/remcycle/memory/-work-shop/ci-runner.md']])
+})
+
 test('the archive is brought up to date when a session ends', async ($, on) => {
   const calls = commandLine(on, { ingest: '1 added, 0 updated, 0 unchanged, 0 excluded\n' })
 

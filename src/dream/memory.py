@@ -8,6 +8,7 @@ with or without remcycle. Provenance, evidence and history live beside them in
 import json
 import os
 import re
+import secrets
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -25,6 +26,7 @@ INDEX_BYTE_LIMIT = 25_000
 # Past this many entries, a session should pick a topic before it picks an entry.
 TOPICS_AFTER = 60
 SIDE = ".remcycle"
+USAGE = "usage.json"
 # Claude Code's own memory types, which decide how a session treats the file.
 _BUILT_IN_TYPE = {
     ClaimType.PREFERENCE: "feedback",
@@ -109,7 +111,7 @@ class MemoryStore:
         self._threads_file = folder / SIDE / "threads.json"
         self._closed_file = folder / SIDE / "closed.json"
         self._flat_file = folder / SIDE / "flat"
-        self._usage_file = folder / SIDE / "usage.json"
+        self._usage_file = folder / SIDE / USAGE
         self._lines_file = folder / SIDE / "index.md"
 
     @property
@@ -326,8 +328,9 @@ class MemoryStore:
         return usage.get(slot, {}).get("reads", 0)
 
     def needed(self, slot: str) -> int:
-        """How often the entry has been needed: the times it was said, and the times a session looked it up."""
-        return len(self._records().get(slot, {}).get("evidence", [])) + self.reads(slot)
+        """How often the entry has been needed: the sessions it came up in, and the times it was looked up."""
+        came_up_in = {session_id for session_id, *_ in self._records().get(slot, {}).get("evidence", [])}
+        return len(came_up_in) + self.reads(slot)
 
     def note_threads(self, threads: Sequence[Thread], session_id: str, at: str) -> list[str]:
         """Record what a session left open, and close what it finished. Returns the closed threads it reopened."""
@@ -581,10 +584,16 @@ class MemoryStore:
 
 
 def _put(file: Path, text: str) -> None:
-    """Replace the file whole, so a reader never finds it half written."""
-    fresh = file.with_name(file.name + ".new")
-    fresh.write_text(text)
-    os.replace(fresh, file)
+    """Replace the file whole, so a reader never finds it half written.
+
+    Each writer works in a file of its own, so two writing at once do not take each other's away.
+    """
+    fresh = file.with_name(f"{file.name}.{os.getpid()}.{secrets.token_hex(4)}.new")
+    try:
+        fresh.write_text(text)
+        os.replace(fresh, file)
+    finally:
+        fresh.unlink(missing_ok=True)
 
 
 def _entry(slot: str, text: str, record: dict) -> Entry:

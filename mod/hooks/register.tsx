@@ -7,7 +7,8 @@ const PANE = 'remcycle'
 const RECALL = 'mcp__remcycle__recall'
 const CLOSE = 'mcp__remcycle__close_thread'
 const SETTLE = 'mcp__remcycle__settle_memory'
-const MEMORY_FILE = /\/memory\/[^/]+\.md$/
+// A memory in Claude Code's own folder, memory/<name>.md, or in the copy the dream keeps, memory/<project>/<name>.md.
+const MEMORY_FILE = /\/memory\/(?:[^/]+\/)?[^/]+\.md$/
 const LATELY = 3
 const PER_PAGE = 12
 const BRIEF = 80

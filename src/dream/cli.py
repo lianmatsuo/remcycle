@@ -144,8 +144,12 @@ def _show(archive: Archive, args: argparse.Namespace) -> int:
     if args.summary:
         recap = archive.recap(args.session)
         print(_heading(recap))
-        print(recap.summary or "The dream has not read this session as it now stands, so it has no summary.")
-        print("Read its turns back with --first and --last.")
+        if recap.summary:
+            print(recap.summary)
+            return 0
+        print("The dream has not read this session as it now stands, so it has no summary yet.")
+        if recap.opening:
+            print(f"It opened with: {_clipped(' '.join(recap.opening.split()))}")
         return 0
     for turn in archive.show(args.session, first=args.first, last=args.last):
         print(f"#{turn.seq} {turn.author} {turn.timestamp or ''}".rstrip())
@@ -285,7 +289,9 @@ def _reopen(archive: Archive, args: argparse.Namespace) -> int:
 def _note_read(archive: Archive, args: argparse.Namespace) -> int:
     """For the mod: count a session reading a memory file and print any warning about it."""
     file = args.file.resolve()
-    copy = args.memory / file.parent.parent.name
+    # Claude Code keeps a memory at <project>/memory/<name>.md. The dream's own copy holds it at <project>/<name>.md.
+    is_own_copy = file.parent.parent == args.memory.resolve()
+    copy = file.parent if is_own_copy else args.memory / file.parent.parent.name
     if file.stem in MemoryStore(copy).entries():
         print(MemoryStore(copy).note_read(file.stem, Path(project_of(str(Path.cwd()))), _now()) or "")
     return 0

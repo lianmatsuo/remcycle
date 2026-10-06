@@ -9,6 +9,7 @@ from dream.dreaming import dream as run_dream
 from dream.dreaming import publish_project, review_project
 from dream.extract import ExtractionError, Reply
 from dream.memory import MemoryStore
+from dream.mirror import Mirror
 from dream.outside import Finished, Witnessed
 from dream.reconcile import Add, Confirm, Review, Withhold
 from dream.session import context, status
@@ -305,6 +306,28 @@ def test_a_new_session_is_handed_what_is_new_first_and_then_what_has_been_needed
     assert handed() == (["fresh", "old-again", "old-once"], 0)
     # Room for the first two statements only: what was said once, long ago, is what stays behind.
     assert handed(room=40) == (["fresh", "old-again"], 1)
+
+    # A busy fortnight does not crowd out what has come up in session after session.
+    store.apply([Confirm("old-again", Evidence(f"s-{n}", 1, 1), "2026-08-01T09:00:00Z") for n in range(3)])
+    store.apply([Add(said(f"fresh-{n}", f"Fresh note {n}, said once.", f"2026-10-0{n + 2}T09:00:00Z")) for n in range(3)])
+    assert handed(room=40) == (["old-again", "fresh-2"], 4)
+
+
+def test_a_look_up_counted_while_the_dream_is_at_work_is_kept(tmp_path):
+    pnpm = Claim("package-manager", ClaimType.PREFERENCE, Scope.PROJECT, "Use pnpm for JS projects.", "", Provenance.HUMAN,
+                 Evidence("s-first", 0, 0), "2026-10-01T09:00:00Z")
+    mirror = Mirror(tmp_path / "memory" / "-work-shop")
+    mirror.sync(None, PROJECT)
+    MemoryStore(mirror.stage()).apply([Add(pnpm)])
+    mirror.accept("dream: 1 sessions")
+
+    staged = MemoryStore(mirror.stage())
+    MemoryStore(mirror.folder).note_found(["package-manager"], "2026-10-06T09:00:00Z")
+    staged.apply([Confirm("package-manager", Evidence("s-later", 1, 1), "2026-10-05T09:00:00Z")])
+    mirror.accept("dream: 1 sessions")
+
+    assert MemoryStore(mirror.folder).reads("package-manager") == 1
+    assert MemoryStore(mirror.folder).needed("package-manager") == 3
 
 
 def test_status_lists_what_the_dream_holds_for_a_project_and_what_waits_on_the_person(archive, claude, tmp_path):

@@ -38,8 +38,9 @@ def _learned(store: MemoryStore, live: Path, room: int, now: str) -> tuple[list[
     Only what the person said or agreed to, and only what the index lists: what publishing
     would add to the memory a session loads, handed to the session without publishing.
 
-    What was said in the last two weeks comes first, newest first. The rest follow, the
-    most needed first, so what stays behind when room runs out was said once, long ago.
+    The most needed come first, and among equals the newest. Something said in the last two
+    weeks counts as needed once more, so it is not passed over before it has had the time
+    to come up again. What stays behind when room runs out is what was needed least.
     """
     entries = store.entries()
     slots = [
@@ -55,8 +56,7 @@ def _learned(store: MemoryStore, live: Path, room: int, now: str) -> tuple[list[
     def rank(slot: str) -> tuple:
         said = store.modified(slot)
         is_fresh = bool(said) and _moment(said) >= newly
-        # Something said lately has not had the time to be needed, so its count is left out of it.
-        return (is_fresh, 0 if is_fresh else store.needed(slot), said)
+        return (store.needed(slot) + is_fresh, said)
 
     slots.sort(key=rank, reverse=True)
     handed: list[dict] = []

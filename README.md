@@ -28,7 +28,7 @@ A skill or an instructions file is text that Claude reads and may or may not act
 - **It adds a panel.** `/remcycle` shows what it holds, and lets you rule on what it doubts.
 - **When a session ends**, it files what was said.
 
-Behind the mod is a program of its own, the `dream` command, with an archive, a nightly run, and checks that every change to memory has to pass.
+Behind the mod is a program of its own, the `dream` command, with an archive, a nightly run, and checks that everything the dream writes to memory has to pass.
 
 ```mermaid
 flowchart TB
@@ -58,7 +58,7 @@ flowchart TB
 - **Sessions that start informed.** Each new session is handed what you have said applies to all your work, what was learned about the project, and what earlier sessions left unfinished.
 - **Memory you can trust.** Every memory points at the words it came from. Something only Claude concluded is never loaded as if you had said it, and a note you already had is never replaced without asking you.
 - **A list that stays short.** Stale, repeated and contradictory notes are found and put to you, so what loads at the start of a session does not keep growing.
-- **Recall.** Claude can search everything that was said in past sessions, get any of them in brief, and read the exact words back when it needs them.
+- **Recall.** Claude can search everything that was said in past sessions, get a summary of any the dream has read, and read the exact words back when it needs them.
 - **A panel.** `/remcycle` shows what needs your ruling, what was learned lately and what is left open.
 - **Everything on your machine.** The archive is one local file. The only thing that leaves is what the dream sends to the model, through your own Claude Code.
 
@@ -78,7 +78,7 @@ To do it by hand, see [Install by hand](docs/reference.md#install-by-hand).
 
 ## What it does without asking
 
-Out of the box it only saves what was said and answers when you ask it something. The nightly dream and the mod run by themselves once you turn them on.
+Once installed it only saves what was said and answers when you ask it something. The nightly dream, and the mod's part in every session, start when you turn them on.
 
 Four things never happen without you: writing into the memory Claude Code itself loads, retiring or replacing a note you already had, deleting anything from the archive, and reading a project you have excluded.
 

@@ -369,6 +369,22 @@ def test_a_session_is_recalled_in_brief_by_what_the_dream_made_of_it(root, archi
     with pytest.raises(LookupError, match="no archived session"):
         archive.recap("deadbeef")
 
+    # The summary describes the session as it was read. Once the session has grown it no longer stands.
+    put_session(
+        root,
+        LEDGER_SESSION,
+        [
+            human("should refunds bypass the ledger", 0),
+            assistant_text("No: every refund must post to the ledger first.", 1),
+            human("ok, keep it that way", 2),
+            assistant_text("Left the ledger path unchanged.", 3),
+            human("actually, let partial refunds skip it", 4),
+        ],
+    )
+    archive.ingest(root)
+    grown = archive.recap("7f3a9c2e")
+    assert (grown.turns, grown.summary) == (5, None)
+
 
 def test_a_session_waits_for_its_dream_until_one_is_recorded_and_again_once_it_grows(root, archive):
     rows = [human("pin the base image version", 0)]

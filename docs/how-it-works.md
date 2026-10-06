@@ -74,7 +74,7 @@ Before any of this is accepted, the dream works on a spare copy and checks it: n
 
 The split is deliberate. What hurts a model is not what sits on disk but what is put in front of it every time. So the list that loads is kept short, and the detail stays a lookup away.
 
-A lookup does not load a whole session either. A search returns the few turns that match and a short summary of each session they came from, which the dream wrote when it read that session. Claude reads the turns themselves only when it needs the exact words.
+A lookup does not load a whole session either. A search returns the few turns that match, and for each session they came from that the dream has read, the short summary it wrote then. Claude reads the turns themselves only when it needs the exact words.
 
 A thread closes when the session that finishes the work says so, when a later session's transcript shows it done, when a commit or merged pull request in the project did it, or when you press Done. A session that closes a thread has to say what finished it, and the next dream checks that against the session's own transcript.
 

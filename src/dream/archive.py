@@ -129,6 +129,8 @@ class Recap:
     turns: int
     summary: str | None
     """What the dream made of the session. None until it has read the session as it now stands."""
+    opening: str | None
+    """The first thing the person typed."""
 
 
 @dataclass(frozen=True)
@@ -338,7 +340,11 @@ class Archive:
         """One session in brief. `session` is a session id or any prefix that picks out a single session."""
         session_id = self._one(session)
         title, ended_at = self._db.execute("SELECT title, ended_at FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
-        return Recap(session_id, title, ended_at, self._turn_count(session_id), (self.digest(session_id) or {}).get("summary") or None)
+        opening = self._db.execute(
+            "SELECT text FROM turns WHERE session_id = ? AND author = 'human' ORDER BY seq LIMIT 1", (session_id,)
+        ).fetchone()
+        summary = (self.digest(session_id) or {}).get("summary") or None
+        return Recap(session_id, title, ended_at, self._turn_count(session_id), summary, opening[0] if opening else None)
 
     def _one(self, session: str) -> str:
         matches = self._db.execute(
