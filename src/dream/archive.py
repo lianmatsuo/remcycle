@@ -3,6 +3,8 @@
 import json
 import re
 import sqlite3
+import subprocess
+import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -123,6 +125,21 @@ def _compared(folder: str) -> str:
     return spelled.casefold() if _WINDOWS.match(spelled) else spelled
 
 
+def _keep_to_owner(folder: Path) -> None:
+    """On Windows, let only the folder's owner, the system and the machine's administrators into it and into whatever is put in it.
+
+    The mode the folder is made with asks for the same, and Python before 3.12.4 ignores it on Windows.
+    """
+    # The owner of a file, the system and the administrators, under the numbers Windows knows them by in every language.
+    let_in = [f"*{who}:(OI)(CI)F" for who in ("S-1-3-4", "S-1-5-18", "S-1-5-32-544")]
+    try:
+        subprocess.run(["icacls", str(folder), "/inheritance:r", "/grant:r", *let_in], check=True, capture_output=True)
+    except (OSError, subprocess.CalledProcessError) as e:
+        # Taken away again, so that the next command makes it afresh and closes it, and none finds it left open.
+        folder.rmdir()
+        raise OSError(f"{folder} could not be kept to its owner, so no archive was made in it") from e
+
+
 @dataclass(frozen=True)
 class Kept:
     """An archived session, as much of it as deciding whether to keep it takes."""
@@ -185,7 +202,10 @@ class IngestReport:
 class Archive:
     def __init__(self, path: Path) -> None:
         # The archive holds what was typed into every session, so only its owner may read it.
+        is_new = not path.parent.exists()
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if is_new and sys.platform == "win32":
+            _keep_to_owner(path.parent)
         self._db = sqlite3.connect(path)
         path.chmod(0o600)
         self._db.executescript(_SCHEMA)
