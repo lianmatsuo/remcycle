@@ -2,7 +2,7 @@
 
 Claude Code starts every session fresh. It has a memory folder for each project, but the notes in it are written in the moment, nobody checks them against each other, and they pile up until the oldest are wrong and the list is too long to load.
 
-remcycle gives that memory a night shift. It keeps everything you and Claude said, and while you are away it reads the new sessions, keeps what you actually decided, and throws out or questions the rest.
+remcycle gives that memory a daily clear-out. It keeps everything you and Claude said, and once a day it reads the new sessions, keeps what you actually decided, and throws out or questions the rest.
 
 ## The loop
 
@@ -10,7 +10,7 @@ remcycle gives that memory a night shift. It keeps everything you and Claude sai
 flowchart LR
     work(["You and<br/>Claude Code"])
     archive[("Archive<br/>word for word")]
-    dream{{"The dream<br/>while you are away"}}
+    dream{{"The dream<br/>once a day"}}
     memory["Memory<br/>short, sourced notes"]
     work -- "saved" --> archive
     archive -- "what is new" --> dream

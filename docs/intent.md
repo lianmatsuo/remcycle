@@ -4,7 +4,7 @@ Status: agreed 2026-10-05. Build has started with the archive (see [Build order]
 
 ## Intent
 
-Claude Code on this machine learns from its own sessions overnight. Each night it reviews the day's work, reconciles it against what earlier sessions established, and keeps what was done and what was decided, each with its reason and a pointer back to the session it came from. Finished sessions leave the sidebar but stay recallable through a compact record. You can open a view of what Claude believes, see where each belief came from, and correct it.
+Claude Code on this machine learns from its own sessions once a day. Each day it reviews the latest work, reconciles it against what earlier sessions established, and keeps what was done and what was decided, each with its reason and a pointer back to the session it came from. Finished sessions leave the sidebar but stay recallable through a compact record. You can open a view of what Claude believes, see where each belief came from, and correct it.
 
 The overriding constraint is context rot: stale, redundant or contradictory material must not accumulate in what the model reads.
 

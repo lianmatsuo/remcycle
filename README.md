@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/header.png" alt="remcycle. Garbage collection for Claude Code's memory. A mod that rereads your sessions every night, keeps what you decided, and questions the notes that have gone stale." width="100%">
+  <img src="docs/images/header.png" alt="remcycle. Garbage collection for Claude Code's memory. A mod that rereads your sessions every day, keeps what you decided, and questions the notes that have gone stale." width="100%">
 </p>
 
 <p align="center">
@@ -14,7 +14,7 @@
 
 <p align="center"><sub>The shop project in the pictures is made up.</sub></p>
 
-Claude Code starts every session fresh, and the notes it keeps about your projects pile up until the old ones are wrong. remcycle keeps everything you and Claude said, and while you are away it reads the new sessions, keeps what you actually decided, and questions the rest. The next session starts knowing it.
+Claude Code starts every session fresh, and the notes it keeps about your projects pile up until the old ones are wrong. remcycle keeps everything you and Claude said, and once a day it reads the new sessions in the background, keeps what you actually decided, and questions the rest. The sessions after that start knowing it.
 
 - **Sessions that start informed.** Each new session is handed what you have said applies to all your work, what was learned about the project, and what earlier sessions left unfinished.
 - **Memory you can trust.** Every memory points at the words it came from. Something only Claude concluded is never loaded as if you had said it, and a note you already had is never replaced without asking you.
@@ -71,7 +71,7 @@ Type `/remcycle` in any session.
 flowchart LR
     work(["You and<br/>Claude Code"])
     archive[("Archive<br/>word for word")]
-    dream{{"The dream<br/>while you are away"}}
+    dream{{"The dream<br/>once a day"}}
     memory["Memory<br/>short, sourced notes"]
     work -- "saved" --> archive
     archive -- "what is new" --> dream
