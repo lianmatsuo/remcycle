@@ -1,3 +1,4 @@
+import json
 import tomllib
 from pathlib import Path
 
@@ -21,3 +22,13 @@ def test_the_command_says_which_release_it_is(tmp_path, capsys, monkeypatch):
     assert stopped.value.code == 0
     assert capsys.readouterr().out == f"dream {_released()}\n"
 
+
+def test_a_release_is_one_version_everywhere_it_is_written():
+    lock = tomllib.loads((ROOT / "uv.lock").read_text())
+    locked = next(package["version"] for package in lock["package"] if package["name"] == "remcycle")
+    mod = json.loads((ROOT / "mod/.claude-plugin/plugin.json").read_text())["version"]
+
+    assert {"uv.lock": locked, "mod/.claude-plugin/plugin.json": mod} == {
+        "uv.lock": _released(),
+        "mod/.claude-plugin/plugin.json": _released(),
+    }

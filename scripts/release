@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# The two things a release needs done to files. RELEASING.md has the steps around them.
+#
+#   scripts/release bump X.Y.Z    write the version everywhere a release writes it
+#   scripts/release notes X.Y.Z   print that version's section of CHANGELOG.md
+set -euo pipefail
+unset CDPATH
+cd "$(dirname "$0")/.."
+
+MOD_MANIFEST=mod/.claude-plugin/plugin.json
+
+a_version() {
+  if [[ ! ${1:-} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "A version reads X.Y.Z, such as 0.3.0." >&2
+    exit 2
+  fi
+}
+
+bump() {
+  local to="$1"
+  # Writes pyproject.toml and brings uv.lock along.
+  uv version "$to"
+  sed -E -i.bak "s/^(  \"version\": \")[^\"]+(\",)$/\\1$to\\2/" "$MOD_MANIFEST"
+  rm "$MOD_MANIFEST.bak"
+  uv run --locked pytest -q tests/test_release.py
+}
+
+notes() {
+  local of="$1" section
+  # The lines under the version's heading, up to the next one, without the blank lines around them.
+  section="$(awk -v heading="## $of" '
+    $0 == heading { inside = 1; next }
+    inside && /^## / { exit }
+    inside { print }
+  ' CHANGELOG.md | sed -e '/./,$!d')"
+  if [ -z "$section" ]; then
+    echo "CHANGELOG.md has no section headed: ## $of" >&2
+    exit 1
+  fi
+  printf '%s\n' "$section"
+}
+
+case "${1:-}" in
+  bump)
+    a_version "${2:-}"
+    bump "$2"
+    ;;
+  notes)
+    a_version "${2:-}"
+    notes "$2"
+    ;;
+  *)
+    echo "usage: scripts/release bump X.Y.Z | notes X.Y.Z" >&2
+    exit 2
+    ;;
+esac

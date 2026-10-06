@@ -36,10 +36,14 @@ The machine you are on may hold its owner's real archive and memory, under `~/.l
 - It runs inside Claude Code through the mods API. Claude Code writes that API, as the installed version declares it, to `mod/.claude-plugin/types/claude-code/index.d.ts` each time it loads the mod, and the gate has it do so. Look names up there.
 - Its tests use Claude Code's own kit, `claude-code/testing`, and stand in for the `dream` command.
 - The mod reaches remcycle only by running `dream` and reading what it prints. Put logic in the command, with its test, and let the mod call it.
-- A copy of the mod installed from GitHub updates only when `version` in `mod/.claude-plugin/plugin.json` changes. A release raises it together with the version in `pyproject.toml`.
+- A copy of the mod installed from GitHub updates only when `version` in `mod/.claude-plugin/plugin.json` changes, and it changes only in a release.
 
 ## Pull requests
 
 Branch from `main` and open a pull request. CI runs the Python half of the gate on Linux and macOS, on the oldest and newest Python remcycle supports, and the mod's half on Linux, against the Claude Code version the mod was written against. Merge when the `gate` result is green.
 
 Commits follow [Conventional Commits](https://www.conventionalcommits.org): the subject reads `type(scope): summary`, with the scope optional. The types are build, chore, ci, docs, feat, fix, perf, refactor, revert, style and test. The summary says what the change does in plain words: `feat(cli): say how many sessions are unread`, not `feat: update cli.py`. A revert may keep the subject git gives it. The gate checks the subject of every commit the branch adds.
+
+## Releases
+
+A release is a signed tag that the maintainer pushes, and [RELEASING.md](RELEASING.md) has its steps. The version in `pyproject.toml`, `uv.lock` and the mod's manifest changes only there.

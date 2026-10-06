@@ -1,0 +1,78 @@
+name: release
+
+# A pushed version tag starts a release. RELEASING.md has the steps that lead up to the tag.
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: The tag names the version every file holds
+        run: |
+          test "$GITHUB_REF_NAME" = "v$(uv version --short)"
+          uv run --locked pytest -q tests/test_release.py
+      - name: The tagged commit passed the gate
+        run: |
+          passed="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=gate" \
+            --jq '[.check_runs[] | select(.conclusion == "success")] | length')"
+          test "$passed" -gt 0
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: The changelog has the release's notes
+        run: scripts/release notes "${GITHUB_REF_NAME#v}" > notes.md
+      - run: uv build
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release
+          path: |
+            dist/
+            notes.md
+          if-no-files-found: error
+
+  pypi:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/remcycle/
+    permissions:
+      # PyPI takes the upload on this workflow's identity, so no token is stored.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+
+  github:
+    needs: pypi
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release
+      - run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "remcycle ${GITHUB_REF_NAME#v}" --notes-file notes.md dist/*
+        env:
+          GH_TOKEN: ${{ github.token }}
