@@ -352,6 +352,9 @@ def test_a_daily_dream_started_before_a_history_is_chosen_says_how_many_earlier_
     assert daily("2026-10-01T08:00:00+00:00") == "nothing new for the daily dream to read\n"
 
     session("s-after", "2026-10-01T10:00:00.000Z")
+    # A transcript in which nothing was said has no time it ended, and is not an earlier session.
+    put_session(root, "s-untouched", [{"type": "custom-title", "customTitle": "Opened and left"}], cwd="/work/shop")
+    assert main(["ingest", *scope]) == 0
     assert daily("2026-10-01T12:00:00+00:00") == (
         f"the daily dream started in the background: 1 session to read\n1 earlier session waits unread: {choose}\n"
     )

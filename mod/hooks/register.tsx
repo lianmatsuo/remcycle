@@ -476,12 +476,12 @@ export const register: Register = on => {
     if (started?.startsWith('the daily dream started')) {
       // A second line says that earlier sessions wait for the person to choose a history. It asks for
       // something, so it stays up longer.
-      const [said, ...asked] = started.trim().split(/\r?\n/)
+      const [said, asked] = started.trim().split(/\r?\n/)
 
       $.ui.toast(`remcycle: ${said}`)
 
-      for (const line of asked) {
-        $.ui.toast(`remcycle: ${line}`, { timeoutMs: 12_000 })
+      if (asked !== undefined) {
+        $.ui.toast(`remcycle: ${asked}`, { timeoutMs: 12_000 })
       }
     }
 

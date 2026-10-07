@@ -376,8 +376,12 @@ def _daily(archive: Archive, args: argparse.Namespace) -> int:
         if not waiting:
             print("nothing new for the daily dream to read")
             return 0
-        # Until a history is chosen, sessions from before the daily dream began are left unread.
-        earlier = len(archive.awaiting_dream(None)) - len(waiting) if args.daily_history is None else 0
+        # Until a history is chosen, sessions that ended before the daily dream began are left unread.
+        # A transcript in which nothing was said has no time it ended, and is not one of them.
+        earlier = 0
+        if args.daily_history is None:
+            new = {session.session_id for session in waiting}
+            earlier = sum(1 for session in archive.awaiting_dream() if session.ended_at and session.session_id not in new)
         # -P keeps the session's folder off the import path, so a project's own `dream` package is never run.
         background = [sys.executable, "-P", "-m", "dream.cli", "daily", "--background", "--db", str(args.db), "--root", str(args.root)]
         pid = daily.start(background, args.log)

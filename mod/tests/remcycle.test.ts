@@ -882,10 +882,10 @@ test('a starting session sets off the daily dream when one is due, and says so',
   expect(toasts).toEqual(['remcycle: the daily dream started in the background: 3 sessions to read'])
 })
 
-test('a daily dream started before a history is chosen also says that earlier sessions wait', async ($, on) => {
-  const toasts: string[] = []
+test('a daily dream started before a history is chosen also says that earlier sessions wait, for longer', async ($, on) => {
+  const toasts: { text: string; timeoutMs?: number }[] = []
   on('ui.toast', async (_$, e) => {
-    toasts.push(e.text)
+    toasts.push({ text: e.text, timeoutMs: e.timeoutMs })
 
     return { value: undefined }
   })
@@ -901,8 +901,11 @@ test('a daily dream started before a history is chosen also says that earlier se
   await $.session.start({ cwd: '/work/shop', surface: 'terminal', isInteractive: true })
 
   expect(toasts).toEqual([
-    'remcycle: the daily dream started in the background: 3 sessions to read',
-    'remcycle: 12 earlier sessions wait unread: choose how far back the daily dream reads, with /remcycle or `dream daily history`',
+    { text: 'remcycle: the daily dream started in the background: 3 sessions to read', timeoutMs: undefined },
+    {
+      text: 'remcycle: 12 earlier sessions wait unread: choose how far back the daily dream reads, with /remcycle or `dream daily history`',
+      timeoutMs: 12_000,
+    },
   ])
 })
 
