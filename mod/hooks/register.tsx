@@ -474,7 +474,15 @@ export const register: Register = on => {
     const started = await dream($, ['daily'], 10_000)
 
     if (started?.startsWith('the daily dream started')) {
-      $.ui.toast(`remcycle: ${started.trim()}`)
+      // A second line says that earlier sessions wait for the person to choose a history. It asks for
+      // something, so it stays up longer.
+      const [said, asked] = started.trim().split(/\r?\n/)
+
+      $.ui.toast(`remcycle: ${said}`)
+
+      if (asked !== undefined) {
+        $.ui.toast(`remcycle: ${asked}`, { timeoutMs: 12_000 })
+      }
     }
 
     return next(e)
