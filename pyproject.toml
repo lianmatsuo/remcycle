@@ -1,6 +1,6 @@
 [project]
 name = "remcycle"
-version = "0.4.0"
+version = "0.4.1"
 description = "Garbage collection for Claude Code's memory: rereads your sessions every day, keeps what you decided, and questions stale notes"
 dynamic = ["readme"]
 license = "Apache-2.0"

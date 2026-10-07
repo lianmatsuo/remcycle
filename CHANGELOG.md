@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.1
+
+- **Told when earlier sessions are waiting.** Until you choose how much of your history the daily dream reads, it reads only new sessions and leaves the earlier ones. If you installed by hand and never opened the panel, nothing told you there was a choice. The pop-up that says a daily dream has started is now followed by one that says how many earlier sessions are waiting, and that `/remcycle` or `dream daily history` chooses.
+- **Sessions with nothing said are not counted as unread.** A session that was opened and left with nothing said counted as waiting to be read, so the panel's "Everything" button and `dream ingest` showed one more than there was for each.
+
+### Upgrading
+
+```bash
+uv tool upgrade remcycle
+claude plugin update remcycle@remcycle
+```
+
 ## 0.4.0
 
 - **Windows.** The `dream` command and the mod now run on Windows as well as macOS and Linux. This is new: the command's tests pass on Windows, but remcycle has not yet been run there with Claude Code, so the mod and the daily dream are untried on it. It keeps its files in the same folders as elsewhere, `.config\remcycle` and `.local\share\remcycle` under your user folder.

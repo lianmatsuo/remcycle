@@ -1,6 +1,6 @@
 {
   "name": "remcycle",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Garbage collection for Claude Code's memory: gives a session what the dream accepted, recalls from the archive, and shows what waits for your ruling.",
   "author": {
     "name": "Lian Matsuo"
