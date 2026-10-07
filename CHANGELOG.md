@@ -2,7 +2,7 @@
 
 ## 0.4.1
 
-- **Told when earlier sessions are waiting.** Until you choose how much of your history the daily dream reads, it reads only new sessions and leaves the earlier ones. The only place that asked was the panel, so without opening it you were never told. The pop-up that says a daily dream has started is now followed by one that says how many earlier sessions are waiting, and that `/remcycle` or `dream daily history` chooses.
+- **Told when earlier sessions are waiting.** Until you choose how much of your history the daily dream reads, it reads only new sessions and leaves the earlier ones. If you installed by hand and never opened the panel, nothing told you there was a choice. The pop-up that says a daily dream has started is now followed by one that says how many earlier sessions are waiting, and that `/remcycle` or `dream daily history` chooses.
 
 ### Upgrading
 

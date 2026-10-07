@@ -132,7 +132,7 @@ Mods are on by default from Claude Code 2.1.287 in the terminal and 2.1.286 in t
 uv run dream daily
 ```
 
-The mod runs this when a session starts. If no daily dream has started in the last 20 hours and there is something new to read, it starts `dream run` in the background, in a process of its own so it carries on after the session ends, and says how many sessions it will read. Until you have chosen how much history it reads, it also says how many earlier sessions are waiting unread. Otherwise it does nothing. Its output goes to `~/.local/share/remcycle/daily.log`, and its report under `reports/` like any run's.
+The mod runs this when a session starts. If no daily dream has started in the last 20 hours and there is something new to read, it starts `dream run` in the background, in a process of its own so it carries on after the session ends, and says how many sessions it will read. Otherwise it does nothing. Until you have chosen how much history it reads, a daily dream that starts also says how many earlier sessions are waiting unread, when there are any. Its output goes to `~/.local/share/remcycle/daily.log`, and its report under `reports/` like any run's.
 
 What it reads depends on the history chosen, counted back from the first time it was asked to run:
 

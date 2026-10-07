@@ -7,7 +7,7 @@ remcycle runs the dream by itself. The mod runs `dream daily` whenever a session
 ## Its settings
 
 - `dream daily off` and `dream daily on`.
-- `dream daily history new`, `week` or `all`: how much from before it began it reads. Until you choose, only new sessions. The `/remcycle` panel asks this once.
+- `dream daily history new`, `week` or `all`: how much from before it began it reads. Until you choose, only new sessions. The `/remcycle` panel asks this once, and until then a daily dream that starts says how many earlier sessions are waiting.
 - `dream daily limit N`, or `none`: how many sessions one run reads at most. There is no limit until you set one.
 
 Each changes one line in `~/.config/remcycle/config.toml`, so it can be changed there by hand too. The background run writes to `~/.local/share/remcycle/daily.log`, and the panel shows when it last started and why it went wrong if it did. A session the model could not be asked about stays unread and is listed in the log with the reason. If the reason is that `claude` is not signed in, run `claude` in a terminal and sign in.
