@@ -289,6 +289,8 @@ class Archive:
             FROM sessions s LEFT JOIN dreams d ON d.session_id = s.session_id
             WHERE (d.turn_count IS NULL
                    OR d.turn_count != (SELECT count(*) FROM turns t WHERE t.session_id = s.session_id))
+              -- A session in which nothing was said has nothing to read.
+              AND EXISTS (SELECT 1 FROM turns t WHERE t.session_id = s.session_id)
               -- Both sides are UTC, so the first 19 characters compare whatever each writes after the seconds.
               AND (:since IS NULL OR substr(s.ended_at, 1, 19) >= substr(:since, 1, 19))
             ORDER BY s.ended_at

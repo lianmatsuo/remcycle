@@ -471,6 +471,17 @@ def test_a_session_waits_for_its_dream_until_one_is_recorded_and_again_once_it_g
     assert [s.session_id for s in archive.awaiting_dream()] == ["s-1"]
 
 
+def test_a_session_in_which_nothing_was_said_does_not_wait_for_a_dream_until_something_is(root, archive):
+    opened = [{"type": "custom-title", "customTitle": "Opened and left"}]
+    put_session(root, "s-1", opened, cwd="/work/shop")
+    archive.ingest(root)
+    assert archive.awaiting_dream() == []
+
+    put_session(root, "s-1", [*opened, human("pin the base image version", 0)], cwd="/work/shop")
+    archive.ingest(root)
+    assert [s.session_id for s in archive.awaiting_dream()] == ["s-1"]
+
+
 def test_what_the_person_typed_ranks_above_the_assistants_words_when_both_match_alike(root, archive):
     put_session(
         root,
