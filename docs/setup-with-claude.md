@@ -107,6 +107,8 @@ Until the person chooses, the daily dream reads only sessions that end after it 
 
 A cap on how many sessions one run reads, for a person with a long history, is `dream daily limit N`. Without one, a run reads every session that is due. Done when `dream status` shows `daily.history` as their choice, or `daily.on` as false after `dream daily off`. If the person would rather not choose now, the panel asks the same question the first time they open it.
 
+The same JSON's `sign_in.folders` lists the Claude Code folders in the person's home folder. With more than one, such as one per account, the dream signs in through whichever the session that starts it uses. Ask which it should use, and run `dream sign-in` with it, as in `dream sign-in ~/.claude-personal`. Done when `dream status` shows it as `sign_in.folder`.
+
 ## 7. A fixed time instead: only if asked
 
 If the person would rather the dream ran at a set time, such as overnight, [schedule.md](schedule.md) has a task for the Claude desktop app and, for macOS and Linux, a cron line. Set up the one they choose, with this machine's paths in it, and run `dream daily off` so the two do not both run.

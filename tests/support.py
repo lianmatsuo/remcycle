@@ -1,6 +1,8 @@
-"""Builders for transcript rows shaped like the ones Claude Code writes."""
+"""Builders for transcript rows shaped like the ones Claude Code writes, and a stand-in for the `claude` command."""
 
 import json
+import os
+import sys
 from pathlib import Path
 
 from dream.dreaming import key
@@ -70,3 +72,26 @@ def user_row(text: str, n: int = 0, **fields) -> dict:
 
 def human(text: str, n: int = 0, **fields) -> dict:
     return user_row(text, n, turnOrigin="human", origin={"kind": "human"}, promptSource="sdk", **fields)
+
+
+SAYS_WHERE_IT_SIGNS_IN = """\
+import json, os, sys
+
+sys.stdin.read()
+print(json.dumps({"structured_output": {"folder": os.environ.get("CLAUDE_CONFIG_DIR", "unset")}, "total_cost_usd": 0.0}))
+"""
+"""A stand-in program that answers with the Claude Code folder it was started to sign in through."""
+
+
+def stand_in_for_claude(tmp_path, monkeypatch, does):
+    """Put a `claude` command first on the path that runs the Python program `does`."""
+    program = tmp_path / "claude.py"
+    program.write_text(does, encoding="utf-8", newline="\n")
+    if sys.platform == "win32":
+        # A batch file starts it, the way npm has Windows start a command it installs.
+        (tmp_path / "claude.cmd").write_text(f'@"{sys.executable}" "{program}" %*\n', encoding="utf-8", newline="\r\n")
+    else:
+        launcher = tmp_path / "claude"
+        launcher.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{program}" "$@"\n', encoding="utf-8", newline="\n")
+        launcher.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")

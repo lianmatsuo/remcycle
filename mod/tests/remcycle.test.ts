@@ -989,6 +989,58 @@ test('once chosen, the pane says how the daily dream stands, why it last went wr
   )
 })
 
+test('the pane says which Claude Code folder the daily dream signs in through, changes it to another it found, and changes it back', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  const answers: Record<string, string> = { 'sign-in': 'the dream signs in through ~/.claude-personal\n' }
+  const calls = commandLine(on, answers)
+  const daily = { ...DAILY, history: 'week', started: '2026-10-05T10:00:00+00:00', finished: '2026-10-05T10:20:00+00:00' }
+  const folders = ['~/.claude', '~/.claude-personal']
+
+  // A `dream` from before the choice says nothing of it, and the pane offers none.
+  answers.status = JSON.stringify({ ...STATUS, daily })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'refresh' })
+
+  expect(await ui.find({ type: 'Text', text: /^Signs in/ })).toBeUndefined()
+  expect(await ui.find({ key: 'sign-in' })).toBeUndefined()
+
+  answers.status = JSON.stringify({ ...STATUS, daily, sign_in: { folder: null, folders } })
+  await ui.press({ key: 'refresh' })
+
+  expect(await ui.find({ type: 'Text', text: /^Signs in through the folder of the session that starts it$/ })).toBeDefined()
+  expect(await ui.find({ key: 'sign-in:~/.claude-personal' })).toBeUndefined()
+
+  await ui.press({ key: 'sign-in' })
+
+  // It signs in through the session's folder already, so that is not offered.
+  expect(await ui.find({ key: 'sign-in:session' })).toBeUndefined()
+
+  answers.status = JSON.stringify({ ...STATUS, daily, sign_in: { folder: '~/.claude-personal', folders } })
+  await ui.press({ key: 'sign-in:~/.claude-personal' })
+
+  expect(calls).toContainEqual(['dream', 'sign-in', '~/.claude-personal'])
+  expect(await ui.find({ type: 'Text', text: /^Signs in through ~\/\.claude-personal$/ })).toBeDefined()
+  expect(await ui.find({ key: 'sign-in:~/.claude' })).toBeUndefined()
+
+  await ui.press({ key: 'sign-in' })
+
+  expect((await ui.find({ key: 'sign-in:~/.claude' }))?.props.label).toBe('~/.claude')
+  expect((await ui.find({ key: 'sign-in:session' }))?.props.label).toBe("Session's folder")
+  expect(await ui.find({ key: 'sign-in:~/.claude-personal' })).toBeUndefined()
+
+  await ui.press({ key: 'sign-in-cancel' })
+
+  expect(await ui.find({ key: 'sign-in:~/.claude' })).toBeUndefined()
+
+  await ui.press({ key: 'sign-in' })
+  answers.status = JSON.stringify({ ...STATUS, daily, sign_in: { folder: null, folders } })
+  await ui.press({ key: 'sign-in:session' })
+
+  expect(calls).toContainEqual(['dream', 'sign-in', 'session'])
+  expect(await ui.find({ type: 'Text', text: /^Signs in through the folder of the session that starts it$/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('a thread that cannot be closed while a dream is writing memory says so, and to try again', async ($, on) => {
   on('process.run', async () => ({
     value: {

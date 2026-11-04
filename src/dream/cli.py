@@ -20,7 +20,7 @@ from dream.gate import JUDGE_SCHEMA, JUDGE_SYSTEM, judge_with
 from dream.memory import MemoryStore
 from dream.outside import witness_with
 from dream.session import context, status
-from dream.settings import HISTORIES, Settings, load_settings, put_setting
+from dream.settings import HISTORIES, Settings, as_written, claude_code_folders, expand_home, is_claude_code_folder, load_settings, put_setting
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -176,7 +176,7 @@ def _dreamt(archive: Archive, args: argparse.Namespace) -> DreamReport:
     memory. Only the dream after it, which works from what was read, holds the turn at changing memory.
     """
     _ingest(archive, args)
-    runner = ClaudeCode(args.model, effort=args.effort)
+    runner = _claude_code(args)
     ahead = read_ahead(archive, memory_root=args.memory, runner=runner, limit=args.limit, since=args.since, progress=_progress)
     with _turn(args.memory):
         report = _dream_from_what_was_read(archive, args, runner)
@@ -194,14 +194,19 @@ def _progress(line: str) -> None:
     print(line, flush=True)
 
 
+def _claude_code(args: argparse.Namespace, **asked) -> ClaudeCode:
+    """The person's own Claude Code, with the model, effort and sign-in the settings and command line choose."""
+    return ClaudeCode(args.model, effort=args.effort, config_dir=args.model_config_dir, **asked)
+
+
 def _dream_from_what_was_read(archive: Archive, args: argparse.Namespace, runner: ClaudeCode) -> DreamReport:
     return dream(
         archive,
         memory_root=args.memory,
         live_root=args.root,
         runner=runner,
-        judge=judge_with(ClaudeCode(args.model, schema=JUDGE_SCHEMA, system=JUDGE_SYSTEM, effort=args.effort)),
-        witness=witness_with(ClaudeCode(args.model, schema=outside.SCHEMA, system=outside.SYSTEM, effort=args.effort)),
+        judge=judge_with(_claude_code(args, schema=JUDGE_SCHEMA, system=JUDGE_SYSTEM)),
+        witness=witness_with(_claude_code(args, schema=outside.SCHEMA, system=outside.SYSTEM)),
         publish=args.publish,
         limit=args.limit,
         since=args.since,
@@ -216,8 +221,8 @@ def _review(archive: Archive, args: argparse.Namespace) -> int:
         project,
         memory_root=args.memory,
         live_root=args.root,
-        runner=ClaudeCode(args.model, schema=review.SCHEMA, system=review.SYSTEM, effort=args.effort),
-        judge=judge_with(ClaudeCode(args.model, schema=JUDGE_SCHEMA, system=JUDGE_SYSTEM, effort=args.effort)),
+        runner=_claude_code(args, schema=review.SCHEMA, system=review.SYSTEM),
+        judge=judge_with(_claude_code(args, schema=JUDGE_SCHEMA, system=JUDGE_SYSTEM)),
     )
     print(f"{project}: {report.reviewed} memories reviewed, ${report.cost_usd:.2f} of model use")
     print(f"{report.questions} questions for you (see `dream queue`), {report.unsupported} findings dropped")
@@ -281,8 +286,17 @@ def _context(archive: Archive, args: argparse.Namespace) -> int:
 
 def _status(archive: Archive, args: argparse.Namespace) -> int:
     held = status(args.memory, _project(args), _now(), live_root=args.root)
-    print(json.dumps({**held, "daily": _daily_status(archive, args)}))
+    print(json.dumps({**held, "daily": _daily_status(archive, args), "sign_in": _sign_in_status(args)}))
     return 0
+
+
+def _sign_in_status(args: argparse.Namespace) -> dict:
+    """The Claude Code folder the model steps sign in through, None for the session's own, and the folders found to choose from."""
+    home = Path.home()
+    return {
+        "folder": None if args.model_config_dir is None else as_written(args.model_config_dir, home),
+        "folders": [as_written(folder, home) for folder in claude_code_folders(home)],
+    }
 
 
 def _daily_status(archive: Archive, args: argparse.Namespace) -> dict:
@@ -462,6 +476,29 @@ def _changed(words: list[str]) -> int:
     return 0
 
 
+def _sign_in(archive: Archive, args: argparse.Namespace) -> int:
+    """Choose the Claude Code folder the model steps sign in through, in the settings file, or with `session` go back to the session's."""
+    home = Path.home()
+    try:
+        if args.folder == "session":
+            put_setting(os.environ, home, "model_config_dir", None)
+            print("the dream signs in through the folder of the session that starts it")
+            return 0
+        # The pane runs this with no shell to read a leading ~, so it is read here. The folder is kept
+        # as it was named, not as where a symbolic link leads, the way CLAUDE_CONFIG_DIR would name it.
+        folder = Path(expand_home(args.folder, home)).absolute()
+        if not is_claude_code_folder(folder, home):
+            print(f"dream: there is no Claude Code folder at {args.folder}", file=sys.stderr)
+            return 1
+        written = as_written(folder, home)
+        put_setting(os.environ, home, "model_config_dir", json.dumps(written, ensure_ascii=False))
+    except ValueError as e:
+        print(f"dream: {e}", file=sys.stderr)
+        return 2
+    print(f"the dream signs in through {written}")
+    return 0
+
+
 _HISTORY_SAID = {
     "new": "only sessions from after it began",
     "week": "sessions from the week before it began, and every one since",
@@ -498,6 +535,7 @@ def _parser(settings: Settings) -> argparse.ArgumentParser:
     parser.set_defaults(
         exclude=settings.exclude,
         effort=settings.effort,
+        model_config_dir=settings.model_config_dir,
         daily_on=settings.daily,
         daily_history=settings.daily_history,
         daily_limit=settings.daily_limit,
@@ -554,6 +592,9 @@ def _parser(settings: Settings) -> argparse.ArgumentParser:
     daily_.add_argument("--memory", type=Path, default=settings.memory, help=argparse.SUPPRESS)
     daily_.add_argument("--reports", type=Path, default=settings.reports, help=argparse.SUPPRESS)
     daily_.set_defaults(model=settings.model, log=settings.memory.parent / "daily.log")
+
+    signing = command("sign-in", _sign_in, "choose the Claude Code folder the dream signs in through")
+    signing.add_argument("folder", metavar="FOLDER", help="a Claude Code folder, or `session` for the one the session that starts the dream uses")
 
     reviewing = command("review", _review, "review the memories this project already has")
     reviewing.add_argument("--project", type=Path, help="project folder (default: this repository)")

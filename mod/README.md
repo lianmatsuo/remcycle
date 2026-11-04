@@ -27,13 +27,14 @@ It runs in Claude Code only, and needs 2.1.287 or later in the terminal or 2.1.2
 
 - `context`, when a conversation starts, for what to hand the session.
 - `daily`, when a session starts, which starts the day's dream in the background if one is due; and `daily on`, `daily off` or `daily history ...` from the panel's switches.
+- `sign-in`, when you choose in the panel which Claude Code folder the dream signs in through.
 - `status`, when the panel is drawn or refreshed, and before `settle_memory` applies a ruling.
 - `search` and `show`, when Claude uses the `recall` tool.
 - `close`, `reopen` and `resolve`, when Claude uses `close_thread` or `settle_memory`, or you press one of the panel's buttons.
 - `note-read`, after Claude reads one of your memory files, to count the read.
 - `ingest`, when a session ends.
 
-**What it reads.** The mod does not read or keep your messages. It sees the session's id and folder, and the path of each file Claude reads, to notice memory files. The `dream` command reads Claude Code's session transcripts and memory folders on your disk: that is how it files sessions into its archive and how the daily dream learns from them.
+**What it reads.** The mod does not read or keep your messages. It sees the session's id and folder, and the path of each file Claude reads, to notice memory files. The `dream` command reads Claude Code's session transcripts and memory folders on your disk: that is how it files sessions into its archive and how the daily dream learns from them. For the panel, it also lists the Claude Code folders in your home folder, `~/.claude` and `~/.claude-*`, without opening the files in them.
 
 **What leaves your machine, and where.** The mod makes no network requests. The `dream` command sends one thing out: when the dream runs, once a day unless you turn it off, it sends the prose of the sessions it reads to the model your Claude Code uses, through your own Claude Code (`claude -p`, signed in as you). For a project with unfinished work it also sends the messages of the repository's recent commits and the titles and descriptions of its merged pull requests, which it reads with `git` and, where it is installed and signed in, `gh`. Nothing is sent to remcycle's author or anyone else.
 

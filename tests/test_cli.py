@@ -5,6 +5,8 @@ import sys
 import threading
 from dataclasses import replace
 
+import pytest
+
 import dream.cli
 import dream.daily
 from dream.archive import Archive
@@ -16,7 +18,8 @@ from dream.lock import Busy, held
 from dream.memory import MemoryStore
 from dream.mirror import Mirror
 from dream.reconcile import Add, Review
-from support import assistant_text, human, put_session
+from dream.settings import load_settings
+from support import SAYS_WHERE_IT_SIGNS_IN, assistant_text, human, put_session, stand_in_for_claude
 
 
 def test_ingest_search_and_show_from_the_command_line(tmp_path, capsys, monkeypatch):
@@ -576,6 +579,107 @@ def test_the_model_reads_without_holding_the_turn_at_changing_memory_and_the_dre
     report = capsys.readouterr().out
     assert "2 sessions read, $0.75 of model use" in report
     assert "Could not read s-1: the model gave no answer" in report
+
+
+def test_the_dream_signs_in_through_the_claude_code_folder_the_settings_name(tmp_path, monkeypatch):
+    personal = tmp_path / ".claude-personal"
+    personal.mkdir()
+    file = tmp_path / "config" / "remcycle" / "config.toml"
+    file.parent.mkdir(parents=True)
+    file.write_text(f"model_config_dir = '{personal}'\n", encoding="utf-8", newline="\n")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    stand_in_for_claude(tmp_path, monkeypatch, SAYS_WHERE_IT_SIGNS_IN)
+    folders = []
+
+    def reading(archive, **options):
+        folders.append(options["runner"]("what did this session establish?").data["folder"])
+        return dream.dreaming.ReadAhead()
+
+    monkeypatch.setattr(dream.cli, "read_ahead", reading)
+    monkeypatch.setattr(dream.cli, "dream", lambda archive, **options: DreamReport())
+    scope = ["--db", str(tmp_path / "archive.db"), "--root", str(tmp_path / "projects"), "--memory", str(tmp_path / "memory")]
+
+    assert main(["run", *scope, "--reports", str(tmp_path / "reports")]) == 0
+    assert folders == [str(personal)]
+
+
+def test_the_dream_is_told_which_claude_code_folder_to_sign_in_through_and_told_to_go_back(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    for home in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(home, str(tmp_path))
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / ".claude-personal").mkdir()
+    (tmp_path / ".claude-personal" / ".claude.json").write_text("{}", encoding="utf-8", newline="\n")
+    (tmp_path / "Documents").mkdir()
+
+    def chosen():
+        return load_settings(os.environ, tmp_path).model_config_dir
+
+    # As the pane sends it, with no shell to read the ~ first.
+    assert main(["sign-in", "~/.claude-personal"]) == 0
+    assert chosen() == tmp_path / ".claude-personal"
+
+    # A folder that is not there, and one that Claude Code has never used, so never signed in through.
+    for wrong in ("~/.claude-persnal", "~/Documents"):
+        assert main(["sign-in", wrong]) == 1
+        assert wrong in capsys.readouterr().err
+        assert chosen() == tmp_path / ".claude-personal"
+
+    # Claude Code keeps the settings of its own folder beside it, in ~/.claude.json, not in it.
+    assert main(["sign-in", "~/.claude"]) == 0
+    assert chosen() == tmp_path / ".claude"
+
+    assert main(["sign-in", "session"]) == 0
+    assert chosen() is None
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="making a symbolic link on Windows takes a privilege not every account has")
+def test_a_claude_code_folder_is_kept_as_it_was_named_not_as_where_a_symbolic_link_leads(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    for home in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(home, str(tmp_path))
+    kept = tmp_path / "dotfiles" / "claude-personal"
+    kept.mkdir(parents=True)
+    (kept / ".claude.json").write_text("{}", encoding="utf-8", newline="\n")
+    (tmp_path / ".claude-personal").symlink_to(kept)
+
+    # As a shell passes it, with the ~ already read.
+    assert main(["sign-in", str(tmp_path / ".claude-personal")]) == 0
+    assert load_settings(os.environ, tmp_path).model_config_dir == tmp_path / ".claude-personal"
+
+
+def test_a_claude_code_folder_with_any_character_in_its_name_can_be_signed_in_through(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    for home in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(home, str(tmp_path))
+    fox = tmp_path / ".claude-🦊"
+    fox.mkdir()
+    (fox / ".claude.json").write_text("{}", encoding="utf-8", newline="\n")
+
+    assert main(["sign-in", "~/.claude-🦊"]) == 0
+    assert load_settings(os.environ, tmp_path).model_config_dir == fox
+
+
+def test_the_status_names_the_folder_the_dream_signs_in_through_and_the_claude_code_folders_it_could(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    for home in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(home, str(tmp_path))
+    (tmp_path / ".claude").mkdir()
+    for folder in (".claude-work", ".claude-personal"):
+        (tmp_path / folder).mkdir()
+        (tmp_path / folder / ".claude.json").write_text("{}", encoding="utf-8", newline="\n")
+    (tmp_path / ".claude-server-commander").mkdir()  # another program's folder, with no .claude.json of Claude Code's
+    scope = ["--db", str(tmp_path / "archive.db"), "--project", str(tmp_path)]
+
+    def signs_in():
+        capsys.readouterr()
+        assert main(["status", *scope]) == 0
+        return json.loads(capsys.readouterr().out)["sign_in"]
+
+    assert signs_in() == {"folder": None, "folders": ["~/.claude", "~/.claude-personal", "~/.claude-work"]}
+    assert main(["sign-in", "~/.claude-work"]) == 0
+    assert signs_in()["folder"] == "~/.claude-work"
 
 
 def test_what_a_command_prints_is_utf8_wherever_it_is_sent(tmp_path, monkeypatch):

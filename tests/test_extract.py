@@ -16,6 +16,7 @@ import dream.review
 from dream.claims import ClaimType, Evidence, Provenance, Scope
 from dream.extract import ClaudeCode, Correction, ExtractionError, Reply, extract
 from dream.transcript import Author, Kind, Turn
+from support import SAYS_WHERE_IT_SIGNS_IN, stand_in_for_claude
 
 SESSION = "7f3a9c2e-1b4d-4e6f-8a90-123456789abc"
 
@@ -168,20 +169,6 @@ def claude(tmp_path, monkeypatch):
     stand_in_for_claude(tmp_path, monkeypatch, STAND_IN)
 
 
-def stand_in_for_claude(tmp_path, monkeypatch, does):
-    """Put a `claude` command first on the path that runs the Python program `does`."""
-    program = tmp_path / "claude.py"
-    program.write_text(does, encoding="utf-8", newline="\n")
-    if sys.platform == "win32":
-        # A batch file starts it, the way npm has Windows start a command it installs.
-        (tmp_path / "claude.cmd").write_text(f'@"{sys.executable}" "{program}" %*\n', encoding="utf-8", newline="\r\n")
-    else:
-        launcher = tmp_path / "claude"
-        launcher.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{program}" "$@"\n', encoding="utf-8", newline="\n")
-        launcher.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
-
-
 def test_the_model_step_runs_without_the_plugins_of_the_session_that_started_it(claude, monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_PLUGIN_DIRS", "/somewhere/mod")
     monkeypatch.setenv("CLAUDE_CODE_ENABLE_FUNCTION_HOOKS", "1")
@@ -197,6 +184,46 @@ def test_the_model_step_loads_no_mcp_servers_and_no_skills(claude):
     args = ClaudeCode()("what did this session establish?").data["args"]
 
     assert "--strict-mcp-config" in args and "--disable-slash-commands" in args
+
+
+def test_the_model_step_signs_in_through_the_claude_code_folder_it_is_given(tmp_path, monkeypatch):
+    stand_in_for_claude(tmp_path, monkeypatch, SAYS_WHERE_IT_SIGNS_IN)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "the-sessions-own"))
+    personal = tmp_path / ".claude-personal"
+    personal.mkdir()
+
+    given = ClaudeCode(config_dir=personal)("what did this session establish?")
+    inherited = ClaudeCode()("what did this session establish?")
+
+    assert (given.data["folder"], inherited.data["folder"]) == (str(personal), str(tmp_path / "the-sessions-own"))
+
+
+def test_the_default_claude_code_folder_is_signed_in_through_by_leaving_claude_config_dir_out(tmp_path, monkeypatch):
+    stand_in_for_claude(tmp_path, monkeypatch, SAYS_WHERE_IT_SIGNS_IN)
+    for home in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(home, str(tmp_path))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / ".claude-work"))
+    (tmp_path / ".claude").mkdir()
+
+    assert ClaudeCode(config_dir=tmp_path / ".claude")("what did this session establish?").data["folder"] == "unset"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="making a symbolic link on Windows takes a privilege not every account has")
+def test_the_default_claude_code_folder_is_known_by_the_folder_itself_not_by_how_its_path_is_written(tmp_path, monkeypatch):
+    stand_in_for_claude(tmp_path, monkeypatch, SAYS_WHERE_IT_SIGNS_IN)
+    for home in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(home, str(tmp_path))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / ".claude-work"))
+    kept = tmp_path / "dotfiles" / "claude"
+    kept.mkdir(parents=True)
+    (tmp_path / ".claude").symlink_to(kept)
+
+    assert ClaudeCode(config_dir=kept)("what did this session establish?").data["folder"] == "unset"
+
+
+def test_a_claude_code_folder_that_is_not_there_is_named_instead_of_signed_in_through(claude, tmp_path):
+    with pytest.raises(ExtractionError, match="claude-persnal"):
+        ClaudeCode(config_dir=tmp_path / ".claude-persnal")("what did this session establish?")
 
 
 @pytest.mark.parametrize(

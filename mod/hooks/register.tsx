@@ -30,6 +30,8 @@ const at = atom({ plugin: 'remcycle', key: 'at' } as const, 0)
 const busy = atom({ plugin: 'remcycle', key: 'busy' } as const, null)
 const last = atom({ plugin: 'remcycle', key: 'last' } as const, null)
 const page = atom({ plugin: 'remcycle', key: 'page' } as const, 0)
+// Whether the pane lists the Claude Code folders the dream could sign in through instead.
+const choosing = atom({ plugin: 'remcycle', key: 'choosing' } as const, false)
 
 /** How each kind of source reads to the person it came from. */
 const SAID: Record<string, string> = {
@@ -212,8 +214,14 @@ function readable(value: unknown): Status | null {
       isTextOrNull(daily.started) &&
       isTextOrNull(daily.finished) &&
       isTextOrNull(daily.failed))
+  const signIn = value.sign_in
+  // A `dream` from before the choice sends no `sign_in`, and the pane then offers none.
+  const isSignIn =
+    signIn === undefined ||
+    (isRecord(signIn) && isTextOrNull(signIn.folder) && Array.isArray(signIn.folders) && signIn.folders.every(isText))
   const isStatus =
     isDaily &&
+    isSignIn &&
     isText(value.project) &&
     typeof value.withheld === 'number' &&
     isTextOrNull(value.last_dream) &&
@@ -384,6 +392,22 @@ async function close($: EngineInterface, slot: string): Promise<void> {
 /** Changes how the daily dream runs, through `dream daily`, which keeps the change in the settings file. */
 async function changeDaily($: EngineInterface, change: string[], doing: string, done: string): Promise<void> {
   await act($, doing, done, async () => (await dream($, ['daily', ...change])) !== null)
+}
+
+/**
+ * Has the dream sign in through another Claude Code folder, or with `session` through the folder of the
+ * session that starts it, through `dream sign-in`, which keeps it in the settings file.
+ */
+async function signInThrough($: EngineInterface, folder: string): Promise<void> {
+  const named = folder === 'session' ? "the session's folder" : folder
+
+  await update($, choosing, () => false)
+  await act(
+    $,
+    `have the dream sign in through ${named}`,
+    `the dream signs in through ${named}`,
+    async () => (await dream($, ['sign-in', folder])) !== null,
+  )
 }
 
 async function reopen($: EngineInterface, slot: string): Promise<void> {
@@ -699,6 +723,7 @@ export const register: Register = on => {
     const viewing = await read($, project)
     const saving = await read($, busy)
     const did = await read($, last)
+    const isChoosing = await read($, choosing)
     const learned = newestFirst(
       now.memories.filter(memory => memory.from !== null),
       memory => memory.said_at,
@@ -817,6 +842,10 @@ export const register: Register = on => {
     const isRunning = daySet?.started != null && daySet.finished === null && daySet.failed === null
     const lastStarted = ago(daySet?.started ?? null, clock)
     const since = lastStarted === 'now' ? 'just now' : `${lastStarted} ago`
+    const signIn = now.sign_in
+    const otherFolders = signIn?.folders.filter(folder => folder !== signIn.folder) ?? []
+    // Once a folder is chosen, `session` goes back to the folder of the session that starts the dream.
+    const signInChoices = signIn?.folder == null ? otherFolders : [...otherFolders, 'session']
     const dailyCard =
       daySet === undefined ? null : daySet.on && daySet.history === null ? (
         <Box key="daily-setup" flexDirection="column" rowGap={1} borderStyle="round" borderDimColor paddingX={1}>
@@ -880,6 +909,28 @@ export const register: Register = on => {
               />
             )}
           </Box>
+          {daySet.on && signIn !== undefined && (
+            <Box justifyContent="space-between" alignItems="center" columnGap={1}>
+              <Text dimColor>
+                {signIn.folder === null ? 'Signs in through the folder of the session that starts it' : `Signs in through ${signIn.folder}`}
+              </Text>
+              {saving === null && !isChoosing && signInChoices.length > 0 && (
+                <Button key="sign-in" label="Change" onPress={press('sign-in', () => update($, choosing, () => true))} />
+              )}
+            </Box>
+          )}
+          {daySet.on && saving === null && isChoosing && signInChoices.length > 0 && (
+            <Box columnGap={1} rowGap={1} flexWrap="wrap">
+              {signInChoices.map(folder => (
+                <Button
+                  key={`sign-in:${folder}`}
+                  label={folder === 'session' ? "Session's folder" : folder}
+                  onPress={press(`sign-in:${folder}`, () => signInThrough($, folder))}
+                />
+              ))}
+              <Button key="sign-in-cancel" label="Cancel" onPress={press('sign-in-cancel', () => update($, choosing, () => false))} />
+            </Box>
+          )}
           {daySet.failed !== null && <Text color="warning">{`The last daily dream went wrong: ${daySet.failed}`}</Text>}
         </Box>
       )

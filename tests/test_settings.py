@@ -32,7 +32,29 @@ def test_excluded_projects_come_from_the_settings_file(tmp_path):
     assert settings.exclude == (str(tmp_path / "work" / "private-client"), "/srv/other", str(tmp_path / "work-for-another-client"))
 
 
-@pytest.mark.parametrize("contents", ["exclude = [", 'exclude = "~/work/private-client"\n'])
+def test_the_model_steps_can_sign_in_through_another_claude_code_folder_without_moving_where_sessions_are_read(tmp_path):
+    file = tmp_path / ".config" / "remcycle" / "config.toml"
+    file.parent.mkdir(parents=True)
+
+    default = load_settings({}, tmp_path)
+    file.write_text('model_config_dir = "~/.claude-personal"\n', encoding="utf-8", newline="\n")
+    chosen = load_settings({}, tmp_path)
+
+    assert (default.model_config_dir, chosen.model_config_dir) == (None, tmp_path / ".claude-personal")
+    assert chosen.transcripts == tmp_path / ".claude" / "projects"
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        "exclude = [",
+        'exclude = "~/work/private-client"\n',
+        "model_config_dir = 3\n",
+        # Read from wherever the dream happens to start, these would name a different folder each time.
+        'model_config_dir = ""\n',
+        'model_config_dir = ".claude-personal"\n',
+    ],
+)
 def test_a_settings_file_that_cannot_be_used_is_an_error_naming_the_file(tmp_path, contents):
     file = tmp_path / ".config" / "remcycle" / "config.toml"
     file.parent.mkdir(parents=True)

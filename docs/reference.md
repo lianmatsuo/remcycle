@@ -142,6 +142,8 @@ What it reads depends on the history chosen, counted back from the first time it
 
 `dream daily limit N` caps how many sessions one run reads, and `dream daily limit none` takes the cap away, which is the default. `dream daily off` and `dream daily on` turn it off and on. Each of these changes one line in the settings file, so it can be made there by hand too. The panel asks the history question once, shows when the dream last started and why it went wrong if it did, and has the off switch.
 
+`dream sign-in FOLDER` has the dream sign in through another Claude Code folder, for every model step, the daily dream's included. Use it if you keep one folder per account, say `~/.claude-personal`. The folder has to be one Claude Code has used: `~/.claude`, or a folder that holds a `.claude.json`. `dream sign-in session` goes back to the folder the session that starts the dream uses. Either one changes `model_config_dir` in the [settings file](#settings). The panel shows which folder the dream signs in through. Its Change button lists the Claude Code folders in your home folder to choose from: `~/.claude`, and each `~/.claude-*` folder that Claude Code has used. Once a folder is chosen, it also lists the session's folder, to go back.
+
 [schedule.md](schedule.md) says how to run the dream at a fixed time instead.
 
 ## What the archive holds, and what protects it
@@ -162,6 +164,7 @@ The archive is one local SQLite file and ingest sends nothing anywhere. The drea
 exclude = ["~/work/private-client"]
 model = "sonnet"
 effort = "low"
+model_config_dir = "~/.claude-personal"
 daily_dream = true
 daily_history = "week"
 daily_limit = 10
@@ -169,9 +172,11 @@ daily_limit = 10
 
 `model` and `effort` apply to every model step. Leave `effort` out to use Claude Code's default. The three `daily_` settings are [the daily dream](#the-daily-dream)'s: whether it runs, how much history it reads, and how many sessions one run reads at most.
 
+`model_config_dir` names the Claude Code folder the model steps sign in through, the way `CLAUDE_CONFIG_DIR` names one for Claude Code. Set it if you keep more than one Claude Code folder, say one per account, and want the dream to use a particular one. [`dream sign-in`](#the-daily-dream) and the panel set it for you. Write it as a full path, or as one that starts with `~/`. Naming `~/.claude` gives Claude Code's usual sign-in. On macOS, Claude Code keeps a separate sign-in for every folder `CLAUDE_CONFIG_DIR` names, `~/.claude` included, so for `~/.claude` remcycle leaves the variable out. Leave the setting out and the model steps sign in through whatever folder the process that starts them uses: the daily dream uses the folder of the session that starts it, and `dream run` the folder of the terminal you run it in. Only the sign-in changes. remcycle still finds your sessions through `CLAUDE_CONFIG_DIR`.
+
 Locations follow the environment: `CLAUDE_CONFIG_DIR` for Claude Code's files, `XDG_DATA_HOME` for the archive and `XDG_CONFIG_HOME` for the settings file.
 
-On Windows the folders are the same ones, under your user folder: `~/.config/remcycle` is `C:\Users\you\.config\remcycle`. A folder under `exclude` can be written there with either slash, as `"C:/work/private-client"` or, in single quotes so that the backslashes are read as they stand, as `'C:\work\private-client'`.
+On Windows the folders are the same ones, under your user folder: `~/.config/remcycle` is `C:\Users\you\.config\remcycle`. A folder under `exclude` or in `model_config_dir` can be written there with either slash, as `"C:/work/private-client"` or, in single quotes so that the backslashes are read as they stand, as `'C:\work\private-client'`.
 
 ## Removing it
 

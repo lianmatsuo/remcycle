@@ -14,6 +14,7 @@ import sys
 import tempfile
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass
+from pathlib import Path
 
 from dream.claims import Claim, ClaimType, Evidence, Provenance, Scope, claim_from_json, claim_to_json
 from dream.transcript import Author, Kind, Turn
@@ -407,7 +408,8 @@ class ClaudeCode:
 
     The run loads no settings, tools, MCP servers, skills or project context and writes no transcript, so it
     cannot be mistaken for a session and archived in turn. The answer comes back in the
-    shape of `schema`.
+    shape of `schema`. It signs in through the Claude Code folder `config_dir`, or, without
+    one, through the folder Claude Code would use in the environment it runs in.
     """
 
     def __init__(
@@ -417,12 +419,14 @@ class ClaudeCode:
         schema: dict = SCHEMA,
         system: str = SYSTEM,
         effort: str | None = None,
+        config_dir: Path | None = None,
         timeout: int = 900,
     ) -> None:
         self._model = model
         self._effort = effort
         self._schema = schema
         self._system = system
+        self._config_dir = config_dir
         self._timeout = timeout
 
     def __call__(self, prompt: str) -> Reply:
@@ -430,6 +434,8 @@ class ClaudeCode:
         claude = shutil.which("claude")
         if claude is None:
             raise ExtractionError("could not run Claude Code: there is no claude command on the path")
+        if self._config_dir is not None and not self._config_dir.is_dir():
+            raise ExtractionError(f"could not run Claude Code: model_config_dir names {self._config_dir}, which is not a folder")
         command = [
             claude, "-p",
             "--output-format", "json",
@@ -448,6 +454,14 @@ class ClaudeCode:
         # A session passes its plugin folders down to what it starts. Loaded here, a plugin would
         # add to the prompt and run its own hooks around every call.
         plain = {name: value for name, value in os.environ.items() if name not in _PLUGIN_SWITCHES}
+        own = Path.home() / ".claude"
+        if self._config_dir is not None and own.is_dir() and self._config_dir.samefile(own):
+            # On macOS, Claude Code (2.1.291) keeps a separate sign-in in the Keychain for every folder
+            # CLAUDE_CONFIG_DIR names, ~/.claude among them. So its own folder, with its usual sign-in, is
+            # reached by leaving the variable out, and is known by the folder, however its path is written.
+            plain.pop("CLAUDE_CONFIG_DIR", None)
+        elif self._config_dir is not None:
+            plain["CLAUDE_CONFIG_DIR"] = str(self._config_dir)
         try:
             done = _run(command, prompt, plain, self._timeout)
         except (OSError, subprocess.TimeoutExpired) as e:
