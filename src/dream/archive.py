@@ -126,7 +126,8 @@ def _latest_copies(roots: Iterable[Path]) -> list[tuple[Path, os.stat_result]]:
     """Each session's transcript under the roots, with its file status.
 
     A session is in two folders when one Claude Code folder was copied to start another. It is then
-    read from the copy written to last, which is where it went on, so the two never take turns in the archive.
+    read from the copy written to last, which is where it went on. Read from both, the copy left
+    behind would be parsed again at every ingest and reported as having fewer turns.
     """
     latest: dict[str, tuple[Path, os.stat_result]] = {}
     for root in roots:

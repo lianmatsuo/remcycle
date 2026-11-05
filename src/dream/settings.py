@@ -46,7 +46,7 @@ def load_settings(env: Mapping[str, str], home: Path) -> Settings:
     """Settings for one user.
 
     Claude Code's files are found through CLAUDE_CONFIG_DIR, as Claude Code finds them, though its
-    sessions are read from every Claude Code folder (`transcripts_read`); remcycle's own follow the
+    sessions are read from every Claude Code folder (`session_folders`); remcycle's own follow the
     XDG variables.
     """
     file = settings_file(env, home)
@@ -154,15 +154,29 @@ def claude_code_folders(home: Path) -> list[Path]:
     return own + sorted(folder for folder in home.glob(".claude-*") if is_claude_code_folder(folder, home))
 
 
-def transcripts_read(root: Path, home: Path, left_out: Iterable[Path]) -> list[Path]:
-    """The transcripts folders whose sessions are archived: `root`, then those of the other Claude Code folders in the home folder.
+@dataclass(frozen=True)
+class SessionFolder:
+    """A Claude Code folder whose sessions remcycle could read, and whether it reads them."""
+
+    folder: Path
+    transcripts: Path
+    read: bool
+
+
+def session_folders(root: Path, home: Path, left_out: Iterable[Path]) -> list[SessionFolder]:
+    """The folder of `root`, the transcripts folder a command was given, then every other Claude Code folder in the home folder.
 
     A session can run in any of a person's Claude Code folders, started by a tool with no mod to
-    archive it as it ends, so every one is read, less the folders left out.
+    archive it as it ends, so each one is read unless it is left out.
     """
-    skipped = {folder / "projects" for folder in left_out}
-    found = [folder / "projects" for folder in claude_code_folders(home)]
-    return [folder for folder in dict.fromkeys([root, *found]) if folder not in skipped]
+    left_out = list(left_out)
+    found = dict.fromkeys([root, *(folder / "projects" for folder in claude_code_folders(home))])
+    return [SessionFolder(transcripts.parent, transcripts, not is_left_out(transcripts.parent, left_out)) for transcripts in found]
+
+
+def is_left_out(folder: Path, left_out: Iterable[Path]) -> bool:
+    """Whether `folder` is one of `left_out`, however either is written, through a symbolic link or from another folder."""
+    return folder.resolve() in {each.resolve() for each in left_out}
 
 
 def _read(file: Path) -> dict:

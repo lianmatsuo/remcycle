@@ -34,7 +34,7 @@ claude plugin install remcycle@remcycle
 
 The first line installs the `dream` command, and the other two install the mod. Then:
 
-1. **Say what it should never read.** A client's or an employer's projects go in [the settings file](docs/reference.md#settings) before anything else, because the dream starts reading by itself.
+1. **Say what it should never read.** A client's or an employer's projects go in [the settings file](docs/reference.md#settings) before anything else, because the dream starts reading by itself. So does a Claude Code folder kept for an employer's account: remcycle reads every Claude Code folder in your home folder.
 2. **Build the archive.** `dream ingest` copies what was said in your past sessions into one local file. It sends nothing anywhere.
 3. **Open the panel.** Start a new session and type `/remcycle`. It asks once how much of your history the daily dream should read: only new sessions, the week before too, or everything.
 

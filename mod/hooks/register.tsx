@@ -33,7 +33,7 @@ const page = atom({ plugin: 'remcycle', key: 'page' } as const, 0)
 // Whether the pane lists the Claude Code folders the dream could sign in through instead.
 const choosing = atom({ plugin: 'remcycle', key: 'choosing' } as const, false)
 // Whether the pane lists the Claude Code folders whose sessions are read or left out, to change one.
-const choosingFolders = atom({ plugin: 'remcycle', key: 'choosingFolders' } as const, false)
+const choosingSessionFolders = atom({ plugin: 'remcycle', key: 'choosingSessionFolders' } as const, false)
 
 /** How each kind of source reads to the person it came from. */
 const SAID: Record<string, string> = {
@@ -418,7 +418,7 @@ async function signInThrough($: EngineInterface, folder: string): Promise<void> 
 
 /** Reads the sessions in a Claude Code folder, or leaves them out, through `dream read-from`, which keeps it in the settings file. */
 async function readFrom($: EngineInterface, folder: string, isRead: boolean): Promise<void> {
-  await update($, choosingFolders, () => false)
+  await update($, choosingSessionFolders, () => false)
   await act(
     $,
     isRead ? `read the sessions in ${folder}` : `leave out the sessions in ${folder}`,
@@ -746,7 +746,7 @@ export const register: Register = on => {
     const saving = await read($, busy)
     const did = await read($, last)
     const isChoosing = await read($, choosing)
-    const isChoosingFolders = await read($, choosingFolders)
+    const isChoosingSessionFolders = await read($, choosingSessionFolders)
     const learned = newestFirst(
       now.memories.filter(memory => memory.from !== null),
       memory => memory.said_at,
@@ -957,20 +957,24 @@ export const register: Register = on => {
               <Button key="sign-in-cancel" label="Cancel" onPress={press('sign-in-cancel', () => update($, choosing, () => false))} />
             </Box>
           )}
-          {/* Sessions are archived as they end, whether or not the daily dream runs. */}
-          {sessionFolders !== undefined && sessionFolders.length > 0 && (
-            <Box justifyContent="space-between" alignItems="center" columnGap={1}>
-              <Text dimColor>
-                {readFolders.length === 0
-                  ? "Reads no Claude Code folder's sessions"
-                  : `Reads sessions from ${listed(readFolders)}${leftOut.length === 0 ? '' : `, not ${listed(leftOut)}`}`}
-              </Text>
-              {saving === null && !isChoosingFolders && (
-                <Button key="read-from" label="Change" onPress={press('read-from', () => update($, choosingFolders, () => true))} />
-              )}
-            </Box>
-          )}
-          {saving === null && isChoosingFolders && sessionFolders !== undefined && sessionFolders.length > 0 && (
+          {daySet.failed !== null && <Text color="warning">{`The last daily dream went wrong: ${daySet.failed}`}</Text>}
+        </Box>
+      )
+    // Sessions are archived as they end, whether or not the daily dream runs, so this stands apart from it.
+    const sessionFoldersCard =
+      sessionFolders === undefined || sessionFolders.length === 0 ? null : (
+        <Box key="session-folders" flexDirection="column">
+          <Box justifyContent="space-between" alignItems="center" columnGap={1}>
+            <Text dimColor>
+              {readFolders.length === 0
+                ? "Reads no Claude Code folder's sessions"
+                : `Reads sessions from ${listed(readFolders)}${leftOut.length === 0 ? '' : `, not ${listed(leftOut)}`}`}
+            </Text>
+            {saving === null && !isChoosingSessionFolders && (
+              <Button key="read-from" label="Change" onPress={press('read-from', () => update($, choosingSessionFolders, () => true))} />
+            )}
+          </Box>
+          {saving === null && isChoosingSessionFolders && (
             <Box columnGap={1} rowGap={1} flexWrap="wrap">
               {sessionFolders.map(each => (
                 <Button
@@ -982,11 +986,10 @@ export const register: Register = on => {
               <Button
                 key="read-from-cancel"
                 label="Cancel"
-                onPress={press('read-from-cancel', () => update($, choosingFolders, () => false))}
+                onPress={press('read-from-cancel', () => update($, choosingSessionFolders, () => false))}
               />
             </Box>
           )}
-          {daySet.failed !== null && <Text color="warning">{`The last daily dream went wrong: ${daySet.failed}`}</Text>}
         </Box>
       )
     const full = fullness(now.index)
@@ -1141,6 +1144,7 @@ export const register: Register = on => {
         </Box>
         {saving !== null ? <Text color="warning">{`Saving: ${saving}…`}</Text> : did !== null && <Text dimColor>{did}</Text>}
         {dailyCard}
+        {sessionFoldersCard}
         <Box
           key="columns"
           flexDirection={isWide ? 'row' : 'column'}

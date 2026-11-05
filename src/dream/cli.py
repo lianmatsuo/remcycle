@@ -5,7 +5,7 @@ import io
 import json
 import os
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, date, datetime
@@ -27,9 +27,10 @@ from dream.settings import (
     claude_code_folders,
     expand_home,
     is_claude_code_folder,
+    is_left_out,
     load_settings,
     put_setting,
-    transcripts_read,
+    session_folders,
 )
 
 
@@ -86,7 +87,8 @@ def _turn(memory: Path) -> Iterator[None]:
 
 
 def _ingest(archive: Archive, args: argparse.Namespace) -> int:
-    report = archive.ingest(*transcripts_read(args.root, Path.home(), args.exclude_config_dirs), exclude=args.exclude)
+    read = [each.transcripts for each in session_folders(args.root, Path.home(), args.exclude_config_dirs) if each.read]
+    report = archive.ingest(*read, exclude=args.exclude)
     print(f"{report.added} added, {report.updated} updated, {report.unchanged} unchanged, {report.excluded} excluded")
     print(f"{len(archive.awaiting_dream())} not yet read by the dream")
     if report.redacted:
@@ -310,9 +312,10 @@ def _sign_in_status(args: argparse.Namespace) -> dict:
 
 
 def _session_folders_status(args: argparse.Namespace) -> list[dict]:
-    """The Claude Code folders found in the home folder, each with whether its sessions are read."""
+    """The Claude Code folders whose sessions could be read, as ingest finds them, each with whether they are."""
     home = Path.home()
-    return [{"folder": as_written(folder, home), "read": folder not in args.exclude_config_dirs} for folder in claude_code_folders(home)]
+    found = session_folders(args.root, home, args.exclude_config_dirs)
+    return [{"folder": as_written(each.folder, home), "read": each.read} for each in found if is_claude_code_folder(each.folder, home)]
 
 
 def _daily_status(archive: Archive, args: argparse.Namespace) -> dict:
@@ -500,11 +503,8 @@ def _sign_in(archive: Archive, args: argparse.Namespace) -> int:
             put_setting(os.environ, home, "model_config_dir", None)
             print("the dream signs in through the folder of the session that starts it")
             return 0
-        # The pane runs this with no shell to read a leading ~, so it is read here. The folder is kept
-        # as it was named, not as where a symbolic link leads, the way CLAUDE_CONFIG_DIR would name it.
-        folder = Path(expand_home(args.folder, home)).absolute()
-        if not is_claude_code_folder(folder, home):
-            print(f"dream: there is no Claude Code folder at {args.folder}", file=sys.stderr)
+        folder = _claude_code_folder(args.folder, home)
+        if folder is None:
             return 1
         written = as_written(folder, home)
         put_setting(os.environ, home, "model_config_dir", json.dumps(written, ensure_ascii=False))
@@ -518,12 +518,11 @@ def _sign_in(archive: Archive, args: argparse.Namespace) -> int:
 def _read_from(archive: Archive, args: argparse.Namespace) -> int:
     """Read the sessions of a Claude Code folder, or leave them out, as kept in the settings file."""
     home = Path.home()
-    # As with `dream sign-in`, a leading ~ is read here, and the folder is kept as it was named.
-    folder = Path(expand_home(args.folder, home)).absolute()
-    if not is_claude_code_folder(folder, home):
-        print(f"dream: there is no Claude Code folder at {args.folder}", file=sys.stderr)
+    # A folder that has gone since it was left out can still be taken off the list.
+    folder = _claude_code_folder(args.folder, home, listed=args.exclude_config_dirs if args.reading == "on" else ())
+    if folder is None:
         return 1
-    left_out = [kept for kept in args.exclude_config_dirs if kept != folder] + ([folder] if args.reading == "off" else [])
+    left_out = [kept for kept in args.exclude_config_dirs if not is_left_out(kept, [folder])] + ([folder] if args.reading == "off" else [])
     written = [as_written(kept, home) for kept in left_out]
     try:
         put_setting(os.environ, home, "exclude_config_dirs", json.dumps(written, ensure_ascii=False) if written else None)
@@ -533,6 +532,19 @@ def _read_from(archive: Archive, args: argparse.Namespace) -> int:
     said = "reads" if args.reading == "on" else "leaves out"
     print(f"remcycle {said} the sessions in {as_written(folder, home)}")
     return 0
+
+
+def _claude_code_folder(named: str, home: Path, listed: Iterable[Path] = ()) -> Path | None:
+    """The Claude Code folder a command was given, or one of `listed` even if it has gone; None, having said so, for anything else.
+
+    The pane runs these commands with no shell to read a leading ~, so it is read here. The folder is
+    kept as it was named, not as where a symbolic link leads, the way CLAUDE_CONFIG_DIR would name it.
+    """
+    folder = Path(expand_home(named, home)).absolute()
+    if is_claude_code_folder(folder, home) or is_left_out(folder, listed):
+        return folder
+    print(f"dream: there is no Claude Code folder at {named}", file=sys.stderr)
+    return None
 
 
 _HISTORY_SAID = {

@@ -1092,12 +1092,19 @@ test('the pane says which Claude Code folders sessions are read from, leaves one
 
   expect(calls).toContainEqual(['dream', 'read-from', '~/.claude-work', 'on'])
 
-  // Sessions are archived as they end whether or not the daily dream runs, so the choice stays.
-  answers.status = JSON.stringify({ ...STATUS, daily: { ...daily, on: false }, session_folders: folders(true) })
-  await ui.press({ key: 'refresh' })
+  // Sessions are archived as they end whether or not the daily dream runs, so the choice stays:
+  // with the daily dream off, while the history question is asked, and from a `dream` that says nothing of it.
+  for (const shown of [{ daily: { ...daily, on: false } }, { daily: DAILY }, {}]) {
+    answers.status = JSON.stringify({ ...STATUS, ...shown, session_folders: folders(true) })
+    await ui.press({ key: 'refresh' })
 
-  expect(await ui.find({ type: 'Text', text: /^Reads sessions from ~\/\.claude, ~\/\.claude-personal and ~\/\.claude-work$/ })).toBeDefined()
-  expect(await ui.find({ key: 'read-from' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^Reads sessions from ~\/\.claude, ~\/\.claude-personal and ~\/\.claude-work$/ })).toBeDefined()
+    expect(await ui.find({ key: 'read-from' })).toBeDefined()
+  }
+  expect(await ui.find({ key: 'history-new' })).toBeUndefined()
+  answers.status = JSON.stringify({ ...STATUS, daily: DAILY, session_folders: folders(true) })
+  await ui.press({ key: 'refresh' })
+  expect(await ui.find({ key: 'history-new' })).toBeDefined()
   await ui.unmount()
 })
 

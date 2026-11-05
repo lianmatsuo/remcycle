@@ -10,13 +10,14 @@ remcycle collects nothing about you. It has no server, no account and no telemet
 
 ## What leaves your machine
 
-Only what the dream sends to the model, and only through your own Claude Code, under your own Claude account and the terms you already have with Anthropic. That is the prose of the sessions it reads and, for a project with unfinished work, the messages of its recent commits and the titles and descriptions of its merged pull requests. The mod itself makes no network requests.
+Only what the dream sends to the model, and only through your own Claude Code, under your own Claude account and the terms you already have with Anthropic. That is the prose of the sessions it reads and, for a project with unfinished work, the messages of its recent commits and the titles and descriptions of its merged pull requests. It all goes through the one Claude Code folder the dream signs in through, whichever folder each session ran in. The mod itself makes no network requests.
 
 The daily dream sends this once a day. `dream daily off` stops it.
 
 ## Keeping things out, and removing them
 
 - List a project folder under `exclude` in the settings file and its sessions are never archived. `dream purge` removes sessions archived before you excluded it.
+- remcycle reads the sessions of every Claude Code folder in your home folder, `~/.claude` and each `~/.claude-*`. List one under `exclude_config_dirs`, or run `dream read-from FOLDER off`, and its sessions are never archived. Sessions archived from it before then stay, and the dream still reads those it has not read yet.
 - Deleting `~/.local/share/remcycle` and `~/.config/remcycle` removes everything remcycle stored. [Removing it](docs/reference.md#removing-it) covers each part.
 
 ## Contact

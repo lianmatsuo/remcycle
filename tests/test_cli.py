@@ -754,6 +754,54 @@ def test_the_status_says_which_claude_code_folders_sessions_are_read_from(tmp_pa
     assert read_from() == {"~/.claude": True, "~/.claude-personal": True, "~/.claude-work": False}
 
 
+def test_the_status_lists_a_claude_code_folder_outside_the_home_folder_when_claude_config_dir_names_it(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    for home in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(home, str(tmp_path / "home"))
+    (tmp_path / "home" / ".claude").mkdir(parents=True)
+    elsewhere = tmp_path / "elsewhere" / "claude"
+    elsewhere.mkdir(parents=True)
+    (elsewhere / ".claude.json").write_text("{}", encoding="utf-8", newline="\n")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(elsewhere))
+
+    assert main(["status", "--db", str(tmp_path / "archive.db"), "--project", str(tmp_path)]) == 0
+
+    assert json.loads(capsys.readouterr().out)["session_folders"] == [{"folder": str(elsewhere), "read": True}, {"folder": "~/.claude", "read": True}]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="making a symbolic link on Windows takes a privilege not every account has")
+def test_a_left_out_folder_is_not_read_however_its_path_is_written(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    for home in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(home, str(tmp_path))
+    kept = tmp_path / "dotfiles" / "claude-work"
+    kept.mkdir(parents=True)
+    (kept / ".claude.json").write_text("{}", encoding="utf-8", newline="\n")
+    (tmp_path / ".claude-work").symlink_to(kept)
+    put_session(kept / "projects", "s-work", [human("started through the Agent SDK", 0)])
+    assert main(["read-from", "~/.claude-work", "off"]) == 0
+    # A tool may name the folder by where the link leads.
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(kept))
+
+    assert main(["ingest", "--db", str(tmp_path / "archive.db")]) == 0
+
+    with Archive(tmp_path / "archive.db") as archive:
+        assert archive.awaiting_dream() == []
+
+
+def test_a_left_out_folder_that_has_since_gone_can_be_taken_off_the_list(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    for home in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(home, str(tmp_path))
+    settings = tmp_path / "config" / "remcycle" / "config.toml"
+    settings.parent.mkdir(parents=True)
+    settings.write_text('exclude_config_dirs = ["~/.claude-old"]\n', encoding="utf-8", newline="\n")
+
+    assert main(["read-from", "~/.claude-old", "on"]) == 0
+    assert load_settings(os.environ, tmp_path).exclude_config_dirs == ()
+
+
 def test_what_a_command_prints_is_utf8_wherever_it_is_sent(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no-settings"))
     root, db = tmp_path / "projects", str(tmp_path / "archive.db")

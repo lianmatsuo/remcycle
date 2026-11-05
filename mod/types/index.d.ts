@@ -61,7 +61,7 @@ declare module 'claude-code' {
       busy: string | null
       last: string | null
       choosing: boolean
-      choosingFolders: boolean
+      choosingSessionFolders: boolean
     }
   }
 }
