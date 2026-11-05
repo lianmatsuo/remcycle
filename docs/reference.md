@@ -26,7 +26,9 @@ To work on remcycle, clone it: [CONTRIBUTING.md](../CONTRIBUTING.md) says how to
 uv run dream ingest
 ```
 
-Reads the session transcripts under `~/.claude/projects` into `~/.local/share/remcycle/archive.db`. It keeps your prompts and Claude's prose verbatim, keeps each subagent's final report, shrinks tool calls to their name and target, and drops tool output. It is safe to re-run: unchanged sessions are skipped, and a session whose transcript has been deleted or has shrunk keeps its archived copy. It ends by saying how many archived sessions the dream has not read yet.
+Reads the session transcripts of every Claude Code folder in your home folder into `~/.local/share/remcycle/archive.db`. That means `~/.claude/projects`, the `projects` folder of each `~/.claude-*` folder that Claude Code has used, and the folder `CLAUDE_CONFIG_DIR` names, so a session is archived whichever folder it ran in, even one started by a tool that does not load the mod. It keeps your prompts and Claude's prose verbatim, keeps each subagent's final report, shrinks tool calls to their name and target, and drops tool output. It is safe to re-run: unchanged sessions are skipped, and a session whose transcript has been deleted or has shrunk keeps its archived copy. A session in two folders, as when one folder was copied to start another, is read from the copy written to last. It ends by saying how many archived sessions the dream has not read yet.
+
+`dream read-from FOLDER off` leaves the sessions of one Claude Code folder out of the archive, say a folder kept for an employer's account. `dream read-from FOLDER on` reads them again. Either one changes `exclude_config_dirs` in the [settings file](#settings). The panel says which folders are read, and its Change button switches each one. Sessions archived from a folder before it was left out stay in the archive.
 
 ```bash
 uv run dream search retention sweep
@@ -154,7 +156,7 @@ The archive stores what you typed into every session, word for word. Three thing
 - **Excluded projects.** Sessions from a listed project, or from anything inside it, are never archived. Sessions archived before the project was listed stay until you remove them: `dream purge` lists them and `dream purge --yes` deletes them and rewrites the file so their text is gone from it. Memory the dream already drew from them, under `~/.local/share/remcycle/memory/`, is not removed.
 - **File permissions.** The archive file is readable only by your user. On macOS and Linux remcycle sets that on the file itself. On Windows it sets it on the folder it makes for the archive, and the file has the folder's permissions; Windows also lets the machine's administrators in.
 
-The archive is one local SQLite file and ingest sends nothing anywhere. The dream is different: it sends the prose of each unread session, after redaction, to the model through your own Claude Code. For a project with unfinished work it also sends the messages of that repository's recent commits and the titles and descriptions of its merged pull requests, redacted the same way. All of it goes as any session would.
+The archive is one local SQLite file and ingest sends nothing anywhere. The dream is different: it sends the prose of each unread session, after redaction, to the model through your own Claude Code. For a project with unfinished work it also sends the messages of that repository's recent commits and the titles and descriptions of its merged pull requests, redacted the same way. All of it goes as any session would, through the one Claude Code folder the dream signs in through, whichever folder each session came from. To keep the sessions of one account away from another's, leave their folder out with `dream read-from FOLDER off`.
 
 ## Settings
 
@@ -165,6 +167,7 @@ exclude = ["~/work/private-client"]
 model = "sonnet"
 effort = "low"
 model_config_dir = "~/.claude-personal"
+exclude_config_dirs = ["~/.claude-work"]
 daily_dream = true
 daily_history = "week"
 daily_limit = 10
@@ -172,11 +175,13 @@ daily_limit = 10
 
 `model` and `effort` apply to every model step. Leave `effort` out to use Claude Code's default. The three `daily_` settings are [the daily dream](#the-daily-dream)'s: whether it runs, how much history it reads, and how many sessions one run reads at most.
 
-`model_config_dir` names the Claude Code folder the model steps sign in through, the way `CLAUDE_CONFIG_DIR` names one for Claude Code. Set it if you keep more than one Claude Code folder, say one per account, and want the dream to use a particular one. [`dream sign-in`](#the-daily-dream) and the panel set it for you. Write it as a full path, or as one that starts with `~/`. Naming `~/.claude` gives Claude Code's usual sign-in. On macOS, Claude Code keeps a separate sign-in for every folder `CLAUDE_CONFIG_DIR` names, `~/.claude` included, so for `~/.claude` remcycle leaves the variable out. Leave the setting out and the model steps sign in through whatever folder the process that starts them uses: the daily dream uses the folder of the session that starts it, and `dream run` the folder of the terminal you run it in. Only the sign-in changes. remcycle still finds your sessions through `CLAUDE_CONFIG_DIR`.
+`model_config_dir` names the Claude Code folder the model steps sign in through, the way `CLAUDE_CONFIG_DIR` names one for Claude Code. Set it if you keep more than one Claude Code folder, say one per account, and want the dream to use a particular one. [`dream sign-in`](#the-daily-dream) and the panel set it for you. Write it as a full path, or as one that starts with `~/`. Naming `~/.claude` gives Claude Code's usual sign-in. On macOS, Claude Code keeps a separate sign-in for every folder `CLAUDE_CONFIG_DIR` names, `~/.claude` included, so for `~/.claude` remcycle leaves the variable out. Leave the setting out and the model steps sign in through whatever folder the process that starts them uses: the daily dream uses the folder of the session that starts it, and `dream run` the folder of the terminal you run it in. Only the sign-in changes: which sessions are read does not depend on it.
 
-Locations follow the environment: `CLAUDE_CONFIG_DIR` for Claude Code's files, `XDG_DATA_HOME` for the archive and `XDG_CONFIG_HOME` for the settings file.
+`exclude_config_dirs` lists the Claude Code folders whose sessions are never archived. Every other Claude Code folder in your home folder is read, and so is the one `CLAUDE_CONFIG_DIR` names. [`dream read-from`](#archive) and the panel set it for you. Write each folder as a full path, or as one that starts with `~/`.
 
-On Windows the folders are the same ones, under your user folder: `~/.config/remcycle` is `C:\Users\you\.config\remcycle`. A folder under `exclude` or in `model_config_dir` can be written there with either slash, as `"C:/work/private-client"` or, in single quotes so that the backslashes are read as they stand, as `'C:\work\private-client'`.
+Locations follow the environment: `CLAUDE_CONFIG_DIR` for Claude Code's files, though sessions are read from every Claude Code folder, `XDG_DATA_HOME` for the archive and `XDG_CONFIG_HOME` for the settings file.
+
+On Windows the folders are the same ones, under your user folder: `~/.config/remcycle` is `C:\Users\you\.config\remcycle`. A folder under `exclude` or `exclude_config_dirs`, or in `model_config_dir`, can be written there with either slash, as `"C:/work/private-client"` or, in single quotes so that the backslashes are read as they stand, as `'C:\work\private-client'`.
 
 ## Removing it
 

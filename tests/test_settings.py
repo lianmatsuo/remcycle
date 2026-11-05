@@ -44,6 +44,18 @@ def test_the_model_steps_can_sign_in_through_another_claude_code_folder_without_
     assert chosen.transcripts == tmp_path / ".claude" / "projects"
 
 
+def test_claude_code_folders_whose_sessions_are_left_out_come_from_the_settings_file(tmp_path):
+    file = tmp_path / ".config" / "remcycle" / "config.toml"
+    file.parent.mkdir(parents=True)
+    elsewhere = tmp_path / "elsewhere" / "claude"
+
+    default = load_settings({}, tmp_path)
+    file.write_text(f"exclude_config_dirs = ['~/.claude-work', '{elsewhere}']\n", encoding="utf-8", newline="\n")
+    chosen = load_settings({}, tmp_path)
+
+    assert (default.exclude_config_dirs, chosen.exclude_config_dirs) == ((), (tmp_path / ".claude-work", elsewhere))
+
+
 @pytest.mark.parametrize(
     "contents",
     [
@@ -53,6 +65,9 @@ def test_the_model_steps_can_sign_in_through_another_claude_code_folder_without_
         # Read from wherever the dream happens to start, these would name a different folder each time.
         'model_config_dir = ""\n',
         'model_config_dir = ".claude-personal"\n',
+        'exclude_config_dirs = "~/.claude-work"\n',
+        "exclude_config_dirs = [3]\n",
+        'exclude_config_dirs = [".claude-work"]\n',
     ],
 )
 def test_a_settings_file_that_cannot_be_used_is_an_error_naming_the_file(tmp_path, contents):

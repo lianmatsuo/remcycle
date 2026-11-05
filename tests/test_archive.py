@@ -1,3 +1,4 @@
+import os
 import stat
 import subprocess
 import sys
@@ -58,6 +59,32 @@ def test_ingesting_again_with_nothing_new_changes_nothing(root, archive):
     assert counts(first) == (1, 0, 0)
     assert counts(second) == (0, 0, 1)
     assert found(archive.search("base image", project=None)) == [("s-1", 0)]
+
+
+def test_sessions_are_archived_from_every_transcripts_folder_given(tmp_path, archive):
+    personal, work = tmp_path / ".claude-personal" / "projects", tmp_path / ".claude-work" / "projects"
+    put_session(personal, "s-personal", [human("pin the base image version", 0)])
+    put_session(work, "s-work", [human("rotate the deploy key", 0)])
+
+    report = archive.ingest(personal, work)
+
+    assert counts(report) == (2, 0, 0)
+    assert found(archive.search("base image", project=None) + archive.search("deploy key", project=None)) == [("s-personal", 0), ("s-work", 0)]
+
+
+def test_a_session_in_two_folders_is_archived_once_from_the_copy_written_to_last(tmp_path, archive):
+    # As when a Claude Code folder is copied to start another, and the session goes on in the copy.
+    left, going_on = tmp_path / ".claude" / "projects", tmp_path / ".claude-personal" / "projects"
+    copied = put_session(left, "s-1", [human("pin the base image version", 0)])
+    put_session(going_on, "s-1", [human("pin the base image version", 0), assistant_text("Settled on 3.12.3 for now.", 1)])
+    os.utime(copied, ns=(1_000_000_000, 1_000_000_000))
+
+    first = archive.ingest(left, going_on)
+    second = archive.ingest(left, going_on)
+
+    assert counts(first) == (1, 0, 0)
+    assert counts(second) == (0, 0, 1)
+    assert found(archive.search("settled", project=None)) == [("s-1", 1)]
 
 
 def test_a_session_that_kept_going_is_brought_up_to_date(root, archive):

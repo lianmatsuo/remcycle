@@ -682,6 +682,78 @@ def test_the_status_names_the_folder_the_dream_signs_in_through_and_the_claude_c
     assert signs_in()["folder"] == "~/.claude-work"
 
 
+def test_ingest_reads_the_sessions_of_every_claude_code_folder_but_those_left_out(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR")
+    for home in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(home, str(tmp_path))
+    put_session(tmp_path / ".claude" / "projects", "s-desktop", [human("started in the desktop app", 0)])
+    for folder, session_id in ((".claude-personal", "s-personal"), (".claude-work", "s-work")):
+        (tmp_path / folder).mkdir()
+        (tmp_path / folder / ".claude.json").write_text("{}", encoding="utf-8", newline="\n")
+        put_session(tmp_path / folder / "projects", session_id, [human("started through the Agent SDK", 0)])
+    # Another program's folder: with no .claude.json of Claude Code's in it, what it holds is not a session.
+    put_session(tmp_path / ".claude-server-commander" / "projects", "s-other", [human("not a session", 0)])
+    settings = tmp_path / "config" / "remcycle" / "config.toml"
+    settings.parent.mkdir(parents=True)
+    settings.write_text('exclude_config_dirs = ["~/.claude-work"]\n', encoding="utf-8", newline="\n")
+
+    assert main(["ingest", "--db", str(tmp_path / "archive.db")]) == 0
+
+    assert "2 added" in capsys.readouterr().out
+    with Archive(tmp_path / "archive.db") as archive:
+        assert {session.session_id for session in archive.awaiting_dream()} == {"s-desktop", "s-personal"}
+
+
+def test_the_dream_is_told_to_leave_out_the_sessions_of_a_claude_code_folder_and_to_read_them_again(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    for home in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(home, str(tmp_path))
+    for folder in (".claude-personal", ".claude-work"):
+        (tmp_path / folder).mkdir()
+        (tmp_path / folder / ".claude.json").write_text("{}", encoding="utf-8", newline="\n")
+    (tmp_path / "Documents").mkdir()
+
+    def left_out():
+        return load_settings(os.environ, tmp_path).exclude_config_dirs
+
+    # As the pane sends it, with no shell to read the ~ first, and twice over.
+    for folder in ("~/.claude-work", "~/.claude-work", "~/.claude-personal"):
+        assert main(["read-from", folder, "off"]) == 0
+    assert left_out() == (tmp_path / ".claude-work", tmp_path / ".claude-personal")
+
+    assert main(["read-from", "~/Documents", "off"]) == 1
+    assert "~/Documents" in capsys.readouterr().err
+    assert left_out() == (tmp_path / ".claude-work", tmp_path / ".claude-personal")
+
+    assert main(["read-from", "~/.claude-work", "on"]) == 0
+    assert left_out() == (tmp_path / ".claude-personal",)
+    assert main(["read-from", "~/.claude-personal", "on"]) == 0
+    assert left_out() == ()
+    assert "exclude_config_dirs" not in (tmp_path / "config" / "remcycle" / "config.toml").read_text(encoding="utf-8")
+
+
+def test_the_status_says_which_claude_code_folders_sessions_are_read_from(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    for home in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(home, str(tmp_path))
+    (tmp_path / ".claude").mkdir()
+    for folder in (".claude-work", ".claude-personal"):
+        (tmp_path / folder).mkdir()
+        (tmp_path / folder / ".claude.json").write_text("{}", encoding="utf-8", newline="\n")
+    scope = ["--db", str(tmp_path / "archive.db"), "--project", str(tmp_path)]
+
+    def read_from():
+        capsys.readouterr()
+        assert main(["status", *scope]) == 0
+        return {each["folder"]: each["read"] for each in json.loads(capsys.readouterr().out)["session_folders"]}
+
+    assert read_from() == {"~/.claude": True, "~/.claude-personal": True, "~/.claude-work": True}
+    assert main(["read-from", "~/.claude-work", "off"]) == 0
+    assert read_from() == {"~/.claude": True, "~/.claude-personal": True, "~/.claude-work": False}
+
+
 def test_what_a_command_prints_is_utf8_wherever_it_is_sent(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "no-settings"))
     root, db = tmp_path / "projects", str(tmp_path / "archive.db")

@@ -100,6 +100,8 @@ Each is dated 2026-10-05 unless noted.
 
 **Ingest when a session ends; the dream once a day, started by a session.** Ingest needs no model and takes seconds. The dream costs model calls, so a session starts it at most once in 20 hours, in a process of its own that outlives the session. It catches up on whatever it has not read.
 
+**Sessions are read from every Claude Code folder.** Dated 2026-11-05. A person can keep several folders, one per account, and run sessions in them through other tools, such as Paseo or the Agent SDK, with no mod there to archive a session as it ends. Such sessions were never archived, because ingest read only the folder `CLAUDE_CONFIG_DIR` named. It now reads that folder, `~/.claude`, and every `~/.claude-*` folder Claude Code has used, less those listed in `exclude_config_dirs`. The dream sends all of them through the one folder it signs in through, so a folder kept for an employer's account is the usual one to leave out. Rejected: installing the mod in every folder, which reaches only the sessions that load it.
+
 **A running daily dream is known by a lock it holds.** The background run holds the lock for as long as it lives, and the system lets go of it when the process ends, however it ends. Rejected: knowing the run by its process number, which the first version did. Once a process is gone the system gives its number out again, so after a restart some other process could hold the number of a run that died, and no daily dream would start until that process ended. The number is still believed for the first minute, before the run has taken its lock.
 
 **The daily dream is on by default.** People install remcycle for the dream, so it runs with nothing to set up and is turned off with `dream daily off` or the panel. Rejected: asking before the first dream and leaving the nightly run as a setup step, which the first release did. Because it now spends the person's plan without a yes, how much from before it began it reads is the person's choice, asked once in the panel and in the guided setup; until then, only new sessions, and a daily dream that starts says how many earlier ones are waiting. A run has no cap unless the person sets one.
@@ -140,7 +142,7 @@ Two faults showed up and were fixed: the supersession described above, and five 
 - Memory is read once at session start; mid-session edits do not apply until `/clear`, `/compact` or restart.
 - Transcripts are swept after `cleanupPeriodDays` (default 30). Transcripts created by the desktop app are exempt unless `desktopSessionCleanupPeriodDays` is set.
 - A desktop local scheduled task fires only while the app is open and the Mac is awake.
-- Session transcripts sit at `~/.claude/projects/<project>/<session>.jsonl`, with subagent transcripts nested under `<session>/subagents/`. On the development machine on 2026-10-05 that was 28 sessions (245 MB) and 269 subagent transcripts (759 MB).
+- Session transcripts sit at `~/.claude/projects/<project>/<session>.jsonl`, or under the `projects` folder of whichever Claude Code folder `CLAUDE_CONFIG_DIR` names, with subagent transcripts nested under `<session>/subagents/`. On the development machine on 2026-10-05 that was 28 sessions (245 MB) and 269 subagent transcripts (759 MB).
 
 ## Build order
 

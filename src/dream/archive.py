@@ -1,6 +1,7 @@
 """The archive: verbatim session turns in SQLite, found by ranked full-text search."""
 
 import json
+import os
 import re
 import sqlite3
 import subprocess
@@ -121,6 +122,23 @@ def _within(project: str | None, parents: Iterable[str]) -> bool:
     return False
 
 
+def _latest_copies(roots: Iterable[Path]) -> list[tuple[Path, os.stat_result]]:
+    """Each session's transcript under the roots, with its file status.
+
+    A session is in two folders when one Claude Code folder was copied to start another. It is then
+    read from the copy written to last, which is where it went on, so the two never take turns in the archive.
+    """
+    latest: dict[str, tuple[Path, os.stat_result]] = {}
+    for root in roots:
+        # One level down only: deeper .jsonl files are subagent transcripts, not sessions.
+        for path in sorted(root.glob("*/*.jsonl")):
+            stat = path.stat()
+            kept = latest.get(path.stem)
+            if kept is None or stat.st_mtime_ns > kept[1].st_mtime_ns:
+                latest[path.stem] = (path, stat)
+    return list(latest.values())
+
+
 def _compared(folder: str) -> str:
     """A folder's path as it is set against another. Windows takes `C:\\Work` and `C:\\work` for the same folder."""
     spelled = _spelled(folder)
@@ -220,15 +238,13 @@ class Archive:
     def __exit__(self, *exc: object) -> None:
         self._db.close()
 
-    def ingest(self, root: Path, exclude: Iterable[str] = ()) -> IngestReport:
-        """Bring the archive up to date with the transcripts under root.
+    def ingest(self, *roots: Path, exclude: Iterable[str] = ()) -> IngestReport:
+        """Bring the archive up to date with the transcripts under these roots.
 
         Sessions belonging to a project in `exclude`, or to one inside it, are not archived.
         """
         report = IngestReport()
-        # One level down only: deeper .jsonl files are subagent transcripts, not sessions.
-        for path in sorted(root.glob("*/*.jsonl")):
-            stat = path.stat()
+        for path, stat in _latest_copies(roots):
             source = (stat.st_size, stat.st_mtime_ns)
             stored = self._db.execute(
                 "SELECT source_size, source_mtime_ns, rules FROM sessions WHERE session_id = ?", (path.stem,)

@@ -30,9 +30,13 @@ export type Daily = {
 /** The Claude Code folder the dream signs in through, null for the session's own, and the folders found to choose from. */
 export type SignIn = { folder: string | null; folders: string[] }
 
+/** A Claude Code folder found in the home folder, and whether the sessions in it are read. */
+export type SessionFolder = { folder: string; read: boolean }
+
 export type Status = {
   daily?: Daily
   sign_in?: SignIn
+  session_folders?: SessionFolder[]
   project: string
   withheld: number
   last_dream: string | null
@@ -57,6 +61,7 @@ declare module 'claude-code' {
       busy: string | null
       last: string | null
       choosing: boolean
+      choosingFolders: boolean
     }
   }
 }

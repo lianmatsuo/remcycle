@@ -52,6 +52,8 @@ exclude = ["/absolute/path/to/a/repository"]
 
 Done when the person has answered, including with "none", and every folder they named has its entry.
 
+remcycle also reads the sessions of every Claude Code folder in the home folder, and the dream sends what it reads through the one folder it signs in through (step 6). `dream status` prints JSON whose `session_folders` lists them. With more than one, ask whether the sessions of any should stay out, such as a folder kept for an employer's account, and run `dream read-from FOLDER off` for each, as in `dream read-from ~/.claude-work off`. Done when the person has answered, and `dream status` shows `read` as false for each folder they named.
+
 ## 4. Build the archive
 
 ```bash

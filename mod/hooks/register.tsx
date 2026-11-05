@@ -32,6 +32,8 @@ const last = atom({ plugin: 'remcycle', key: 'last' } as const, null)
 const page = atom({ plugin: 'remcycle', key: 'page' } as const, 0)
 // Whether the pane lists the Claude Code folders the dream could sign in through instead.
 const choosing = atom({ plugin: 'remcycle', key: 'choosing' } as const, false)
+// Whether the pane lists the Claude Code folders whose sessions are read or left out, to change one.
+const choosingFolders = atom({ plugin: 'remcycle', key: 'choosingFolders' } as const, false)
 
 /** How each kind of source reads to the person it came from. */
 const SAID: Record<string, string> = {
@@ -219,9 +221,13 @@ function readable(value: unknown): Status | null {
   const isSignIn =
     signIn === undefined ||
     (isRecord(signIn) && isTextOrNull(signIn.folder) && Array.isArray(signIn.folders) && signIn.folders.every(isText))
+  // One from before it read every Claude Code folder sends no `session_folders`, and the pane then shows none.
+  const isSessionFolders =
+    value.session_folders === undefined || isListOf(value.session_folders, f => isText(f.folder) && typeof f.read === 'boolean')
   const isStatus =
     isDaily &&
     isSignIn &&
+    isSessionFolders &&
     isText(value.project) &&
     typeof value.withheld === 'number' &&
     isTextOrNull(value.last_dream) &&
@@ -408,6 +414,22 @@ async function signInThrough($: EngineInterface, folder: string): Promise<void> 
     `the dream signs in through ${named}`,
     async () => (await dream($, ['sign-in', folder])) !== null,
   )
+}
+
+/** Reads the sessions in a Claude Code folder, or leaves them out, through `dream read-from`, which keeps it in the settings file. */
+async function readFrom($: EngineInterface, folder: string, isRead: boolean): Promise<void> {
+  await update($, choosingFolders, () => false)
+  await act(
+    $,
+    isRead ? `read the sessions in ${folder}` : `leave out the sessions in ${folder}`,
+    isRead ? `remcycle reads the sessions in ${folder}` : `remcycle leaves out the sessions in ${folder}`,
+    async () => (await dream($, ['read-from', folder, isRead ? 'on' : 'off'])) !== null,
+  )
+}
+
+/** Folders named in a sentence: `a`, `a and b`, `a, b and c`. */
+function listed(folders: string[]): string {
+  return folders.length < 2 ? folders.join('') : `${folders.slice(0, -1).join(', ')} and ${folders.at(-1)}`
 }
 
 async function reopen($: EngineInterface, slot: string): Promise<void> {
@@ -724,6 +746,7 @@ export const register: Register = on => {
     const saving = await read($, busy)
     const did = await read($, last)
     const isChoosing = await read($, choosing)
+    const isChoosingFolders = await read($, choosingFolders)
     const learned = newestFirst(
       now.memories.filter(memory => memory.from !== null),
       memory => memory.said_at,
@@ -846,6 +869,9 @@ export const register: Register = on => {
     const otherFolders = signIn?.folders.filter(folder => folder !== signIn.folder) ?? []
     // Once a folder is chosen, `session` goes back to the folder of the session that starts the dream.
     const signInChoices = signIn?.folder == null ? otherFolders : [...otherFolders, 'session']
+    const sessionFolders = now.session_folders
+    const readFolders = sessionFolders?.filter(each => each.read).map(each => each.folder) ?? []
+    const leftOut = sessionFolders?.filter(each => !each.read).map(each => each.folder) ?? []
     const dailyCard =
       daySet === undefined ? null : daySet.on && daySet.history === null ? (
         <Box key="daily-setup" flexDirection="column" rowGap={1} borderStyle="round" borderDimColor paddingX={1}>
@@ -929,6 +955,35 @@ export const register: Register = on => {
                 />
               ))}
               <Button key="sign-in-cancel" label="Cancel" onPress={press('sign-in-cancel', () => update($, choosing, () => false))} />
+            </Box>
+          )}
+          {/* Sessions are archived as they end, whether or not the daily dream runs. */}
+          {sessionFolders !== undefined && sessionFolders.length > 0 && (
+            <Box justifyContent="space-between" alignItems="center" columnGap={1}>
+              <Text dimColor>
+                {readFolders.length === 0
+                  ? "Reads no Claude Code folder's sessions"
+                  : `Reads sessions from ${listed(readFolders)}${leftOut.length === 0 ? '' : `, not ${listed(leftOut)}`}`}
+              </Text>
+              {saving === null && !isChoosingFolders && (
+                <Button key="read-from" label="Change" onPress={press('read-from', () => update($, choosingFolders, () => true))} />
+              )}
+            </Box>
+          )}
+          {saving === null && isChoosingFolders && sessionFolders !== undefined && sessionFolders.length > 0 && (
+            <Box columnGap={1} rowGap={1} flexWrap="wrap">
+              {sessionFolders.map(each => (
+                <Button
+                  key={`read-from:${each.folder}`}
+                  label={each.read ? `Stop reading ${each.folder}` : `Read ${each.folder}`}
+                  onPress={press(`read-from:${each.folder}`, () => readFrom($, each.folder, !each.read))}
+                />
+              ))}
+              <Button
+                key="read-from-cancel"
+                label="Cancel"
+                onPress={press('read-from-cancel', () => update($, choosingFolders, () => false))}
+              />
             </Box>
           )}
           {daySet.failed !== null && <Text color="warning">{`The last daily dream went wrong: ${daySet.failed}`}</Text>}

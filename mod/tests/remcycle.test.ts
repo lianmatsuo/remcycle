@@ -1041,6 +1041,66 @@ test('the pane says which Claude Code folder the daily dream signs in through, c
   await ui.unmount()
 })
 
+test('the pane says which Claude Code folders sessions are read from, leaves one out, and reads it again', async ($, on) => {
+  mock.clock(on, { now: NOW })
+  const answers: Record<string, string> = { 'read-from': 'remcycle leaves out the sessions in ~/.claude-work\n' }
+  const calls = commandLine(on, answers)
+  const daily = { ...DAILY, history: 'week', started: '2026-10-05T10:00:00+00:00', finished: '2026-10-05T10:20:00+00:00' }
+  const folders = (isWorkRead: boolean) => [
+    { folder: '~/.claude', read: true },
+    { folder: '~/.claude-personal', read: true },
+    { folder: '~/.claude-work', read: isWorkRead },
+  ]
+
+  // A `dream` from before the choice says nothing of it, and the pane offers none.
+  answers.status = JSON.stringify({ ...STATUS, daily })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'refresh' })
+
+  expect(await ui.find({ type: 'Text', text: /^Reads sessions/ })).toBeUndefined()
+  expect(await ui.find({ key: 'read-from' })).toBeUndefined()
+
+  answers.status = JSON.stringify({ ...STATUS, daily, session_folders: folders(true) })
+  await ui.press({ key: 'refresh' })
+
+  expect(await ui.find({ type: 'Text', text: /^Reads sessions from ~\/\.claude, ~\/\.claude-personal and ~\/\.claude-work$/ })).toBeDefined()
+  expect(await ui.find({ key: 'read-from:~/.claude-work' })).toBeUndefined()
+
+  await ui.press({ key: 'read-from' })
+
+  expect((await ui.find({ key: 'read-from:~/.claude-work' }))?.props.label).toBe('Stop reading ~/.claude-work')
+
+  answers.status = JSON.stringify({ ...STATUS, daily, session_folders: folders(false) })
+  await ui.press({ key: 'read-from:~/.claude-work' })
+
+  expect(calls).toContainEqual(['dream', 'read-from', '~/.claude-work', 'off'])
+  expect(await ui.find({ type: 'Text', text: /^Reads sessions from ~\/\.claude and ~\/\.claude-personal, not ~\/\.claude-work$/ })).toBeDefined()
+  expect(await ui.find({ key: 'read-from:~/.claude-work' })).toBeUndefined()
+
+  await ui.press({ key: 'read-from' })
+
+  expect((await ui.find({ key: 'read-from:~/.claude-work' }))?.props.label).toBe('Read ~/.claude-work')
+
+  await ui.press({ key: 'read-from-cancel' })
+
+  expect(await ui.find({ key: 'read-from:~/.claude-work' })).toBeUndefined()
+
+  await ui.press({ key: 'read-from' })
+  answers['read-from'] = 'remcycle reads the sessions in ~/.claude-work\n'
+  answers.status = JSON.stringify({ ...STATUS, daily, session_folders: folders(true) })
+  await ui.press({ key: 'read-from:~/.claude-work' })
+
+  expect(calls).toContainEqual(['dream', 'read-from', '~/.claude-work', 'on'])
+
+  // Sessions are archived as they end whether or not the daily dream runs, so the choice stays.
+  answers.status = JSON.stringify({ ...STATUS, daily: { ...daily, on: false }, session_folders: folders(true) })
+  await ui.press({ key: 'refresh' })
+
+  expect(await ui.find({ type: 'Text', text: /^Reads sessions from ~\/\.claude, ~\/\.claude-personal and ~\/\.claude-work$/ })).toBeDefined()
+  expect(await ui.find({ key: 'read-from' })).toBeDefined()
+  await ui.unmount()
+})
+
 test('a thread that cannot be closed while a dream is writing memory says so, and to try again', async ($, on) => {
   on('process.run', async () => ({
     value: {

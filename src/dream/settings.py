@@ -2,7 +2,7 @@
 
 import re
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -36,16 +36,18 @@ class Settings:
     """The Claude Code folder the model steps sign in through.
 
     None leaves it to the environment they run in, so the daily dream signs in through the folder of
-    the session that starts it. It moves nothing else: Claude Code's sessions are still found through
-    CLAUDE_CONFIG_DIR.
+    the session that starts it. It moves nothing else: which sessions are read does not depend on it.
     """
+    exclude_config_dirs: tuple[Path, ...] = ()
+    """Claude Code folders whose sessions are never archived."""
 
 
 def load_settings(env: Mapping[str, str], home: Path) -> Settings:
     """Settings for one user.
 
-    Claude Code's files are found through CLAUDE_CONFIG_DIR, as Claude Code finds them;
-    remcycle's own follow the XDG variables.
+    Claude Code's files are found through CLAUDE_CONFIG_DIR, as Claude Code finds them, though its
+    sessions are read from every Claude Code folder (`transcripts_read`); remcycle's own follow the
+    XDG variables.
     """
     file = settings_file(env, home)
     return _settings(_read(file), file, env, home)
@@ -105,6 +107,9 @@ def _settings(chosen: dict, file: Path, env: Mapping[str, str], home: Path) -> S
     # A relative path would be read from whichever folder the dream runs in.
     if config_dir is not None and (not isinstance(config_dir, str) or not Path(expand_home(config_dir, home)).is_absolute()):
         raise ValueError(f"{file}: model_config_dir must be the full path of a Claude Code folder, or start with ~/")
+    left_out = chosen.get("exclude_config_dirs", [])
+    if not isinstance(left_out, list) or not all(isinstance(entry, str) and Path(expand_home(entry, home)).is_absolute() for entry in left_out):
+        raise ValueError(f"{file}: exclude_config_dirs must be a list of Claude Code folders, each a full path or starting with ~/")
     return Settings(
         transcripts=_folder(env, "CLAUDE_CONFIG_DIR", home / ".claude") / "projects",
         archive=data / "archive.db",
@@ -117,6 +122,7 @@ def _settings(chosen: dict, file: Path, env: Mapping[str, str], home: Path) -> S
         daily_history=history,
         daily_limit=limit,
         model_config_dir=None if config_dir is None else Path(expand_home(config_dir, home)),
+        exclude_config_dirs=tuple(Path(expand_home(entry, home)) for entry in left_out),
     )
 
 
@@ -146,6 +152,17 @@ def claude_code_folders(home: Path) -> list[Path]:
     """The Claude Code folders in the home folder: `~/.claude`, and every `~/.claude-*` folder Claude Code has used."""
     own = [home / ".claude"] if is_claude_code_folder(home / ".claude", home) else []
     return own + sorted(folder for folder in home.glob(".claude-*") if is_claude_code_folder(folder, home))
+
+
+def transcripts_read(root: Path, home: Path, left_out: Iterable[Path]) -> list[Path]:
+    """The transcripts folders whose sessions are archived: `root`, then those of the other Claude Code folders in the home folder.
+
+    A session can run in any of a person's Claude Code folders, started by a tool with no mod to
+    archive it as it ends, so every one is read, less the folders left out.
+    """
+    skipped = {folder / "projects" for folder in left_out}
+    found = [folder / "projects" for folder in claude_code_folders(home)]
+    return [folder for folder in dict.fromkeys([root, *found]) if folder not in skipped]
 
 
 def _read(file: Path) -> dict:

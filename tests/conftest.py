@@ -7,3 +7,6 @@ def away_from_real_data(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "unset-data"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "unset-config"))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "unset-claude"))
+    # remcycle reads the sessions of every Claude Code folder in the home folder, so that moves too.
+    for home in ("HOME", "USERPROFILE"):
+        monkeypatch.setenv(home, str(tmp_path / "unset-home"))

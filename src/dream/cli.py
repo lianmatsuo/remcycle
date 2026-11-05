@@ -20,7 +20,17 @@ from dream.gate import JUDGE_SCHEMA, JUDGE_SYSTEM, judge_with
 from dream.memory import MemoryStore
 from dream.outside import witness_with
 from dream.session import context, status
-from dream.settings import HISTORIES, Settings, as_written, claude_code_folders, expand_home, is_claude_code_folder, load_settings, put_setting
+from dream.settings import (
+    HISTORIES,
+    Settings,
+    as_written,
+    claude_code_folders,
+    expand_home,
+    is_claude_code_folder,
+    load_settings,
+    put_setting,
+    transcripts_read,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -76,7 +86,7 @@ def _turn(memory: Path) -> Iterator[None]:
 
 
 def _ingest(archive: Archive, args: argparse.Namespace) -> int:
-    report = archive.ingest(args.root, exclude=args.exclude)
+    report = archive.ingest(*transcripts_read(args.root, Path.home(), args.exclude_config_dirs), exclude=args.exclude)
     print(f"{report.added} added, {report.updated} updated, {report.unchanged} unchanged, {report.excluded} excluded")
     print(f"{len(archive.awaiting_dream())} not yet read by the dream")
     if report.redacted:
@@ -286,7 +296,7 @@ def _context(archive: Archive, args: argparse.Namespace) -> int:
 
 def _status(archive: Archive, args: argparse.Namespace) -> int:
     held = status(args.memory, _project(args), _now(), live_root=args.root)
-    print(json.dumps({**held, "daily": _daily_status(archive, args), "sign_in": _sign_in_status(args)}))
+    print(json.dumps({**held, "daily": _daily_status(archive, args), "sign_in": _sign_in_status(args), "session_folders": _session_folders_status(args)}))
     return 0
 
 
@@ -297,6 +307,12 @@ def _sign_in_status(args: argparse.Namespace) -> dict:
         "folder": None if args.model_config_dir is None else as_written(args.model_config_dir, home),
         "folders": [as_written(folder, home) for folder in claude_code_folders(home)],
     }
+
+
+def _session_folders_status(args: argparse.Namespace) -> list[dict]:
+    """The Claude Code folders found in the home folder, each with whether its sessions are read."""
+    home = Path.home()
+    return [{"folder": as_written(folder, home), "read": folder not in args.exclude_config_dirs} for folder in claude_code_folders(home)]
 
 
 def _daily_status(archive: Archive, args: argparse.Namespace) -> dict:
@@ -499,6 +515,26 @@ def _sign_in(archive: Archive, args: argparse.Namespace) -> int:
     return 0
 
 
+def _read_from(archive: Archive, args: argparse.Namespace) -> int:
+    """Read the sessions of a Claude Code folder, or leave them out, as kept in the settings file."""
+    home = Path.home()
+    # As with `dream sign-in`, a leading ~ is read here, and the folder is kept as it was named.
+    folder = Path(expand_home(args.folder, home)).absolute()
+    if not is_claude_code_folder(folder, home):
+        print(f"dream: there is no Claude Code folder at {args.folder}", file=sys.stderr)
+        return 1
+    left_out = [kept for kept in args.exclude_config_dirs if kept != folder] + ([folder] if args.reading == "off" else [])
+    written = [as_written(kept, home) for kept in left_out]
+    try:
+        put_setting(os.environ, home, "exclude_config_dirs", json.dumps(written, ensure_ascii=False) if written else None)
+    except ValueError as e:
+        print(f"dream: {e}", file=sys.stderr)
+        return 2
+    said = "reads" if args.reading == "on" else "leaves out"
+    print(f"remcycle {said} the sessions in {as_written(folder, home)}")
+    return 0
+
+
 _HISTORY_SAID = {
     "new": "only sessions from after it began",
     "week": "sessions from the week before it began, and every one since",
@@ -536,6 +572,7 @@ def _parser(settings: Settings) -> argparse.ArgumentParser:
         exclude=settings.exclude,
         effort=settings.effort,
         model_config_dir=settings.model_config_dir,
+        exclude_config_dirs=settings.exclude_config_dirs,
         daily_on=settings.daily,
         daily_history=settings.daily_history,
         daily_limit=settings.daily_limit,
@@ -551,7 +588,7 @@ def _parser(settings: Settings) -> argparse.ArgumentParser:
 
     ingest = command("ingest", _ingest, "bring the archive up to date with the transcripts on disk")
     ingest.add_argument(
-        "--root", type=Path, default=settings.transcripts, help="transcripts folder (default: %(default)s)"
+        "--root", type=Path, default=settings.transcripts, help="transcripts folder read first, before the other Claude Code folders' (default: %(default)s)"
     )
 
     search = command("search", _search, "find turns, best match first")
@@ -595,6 +632,10 @@ def _parser(settings: Settings) -> argparse.ArgumentParser:
 
     signing = command("sign-in", _sign_in, "choose the Claude Code folder the dream signs in through")
     signing.add_argument("folder", metavar="FOLDER", help="a Claude Code folder, or `session` for the one the session that starts the dream uses")
+
+    reading = command("read-from", _read_from, "choose whether the sessions in a Claude Code folder are read")
+    reading.add_argument("folder", metavar="FOLDER", help="a Claude Code folder")
+    reading.add_argument("reading", choices=("on", "off"), help="`on` to read its sessions, `off` to leave them out")
 
     reviewing = command("review", _review, "review the memories this project already has")
     reviewing.add_argument("--project", type=Path, help="project folder (default: this repository)")
